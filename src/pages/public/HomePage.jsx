@@ -1,0 +1,254 @@
+import { Link } from 'react-router-dom'
+import { Calendar, Users, Trophy, ArrowRight, TrendingUp } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { getProximosJuegos, getUltimosResultados } from '../../services/juegos.service'
+import { getTablaPosiciones, getLideres } from '../../services/estadisticas.service'
+import { formatDate, formatTime } from '../../utils/formatters'
+
+export default function HomePage() {
+  const [proximosJuegos, setProximosJuegos] = useState([])
+  const [ultimosResultados, setUltimosResultados] = useState([])
+  const [posiciones, setPosiciones] = useState([])
+  const [lideres, setLideres] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [juegos, resultados, tabla, lideresData] = await Promise.all([
+          getProximosJuegos(3),
+          getUltimosResultados(3),
+          getTablaPosiciones(),
+          getLideres('ppj', 5),
+        ])
+        setProximosJuegos(juegos)
+        setUltimosResultados(resultados)
+        setPosiciones(tabla.slice(0, 5))
+        setLideres(lideresData)
+      } catch (error) {
+        console.error('Error loading home data:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center min-h-[400px]">
+        <div className="spinner w-10 h-10"></div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Hero */}
+      <section className="relative bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0 bg-[url('data:image/svg+xml,...')] bg-repeat"></div>
+        </div>
+        <div className="relative px-8 py-12 md:py-16">
+          <h1 className="text-4xl md:text-5xl font-display text-white mb-4">
+            LIGA DE BASQUETBOL
+          </h1>
+          <p className="text-gray-300 text-lg max-w-xl mb-8">
+            Sigue todos los partidos, estadísticas y resultados de la temporada actual.
+          </p>
+          <div className="flex flex-wrap gap-4">
+            <Link to="/calendario" className="btn-primary">
+              <Calendar size={20} />
+              Ver calendario
+            </Link>
+            <Link to="/posiciones" className="btn bg-white/10 text-white hover:bg-white/20">
+              <Trophy size={20} />
+              Tabla de posiciones
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        {/* Próximos juegos */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-gray-900">Próximos Juegos</h2>
+            <Link to="/calendario" className="text-primary-500 hover:text-primary-600 flex items-center gap-1 text-sm font-medium">
+              Ver todos <ArrowRight size={16} />
+            </Link>
+          </div>
+
+          {proximosJuegos.length > 0 ? (
+            <div className="space-y-4">
+              {proximosJuegos.map((juego) => (
+                <Link
+                  key={juego.id}
+                  to={`/juegos/${juego.id}`}
+                  className="card-hover p-4 flex items-center gap-4"
+                >
+                  <div className="text-center min-w-[60px]">
+                    <p className="text-xs text-gray-500">{formatDate(juego.fecha, 'EEE')}</p>
+                    <p className="font-bold">{formatDate(juego.fecha, 'dd/MM')}</p>
+                    <p className="text-sm text-gray-500">{formatTime(juego.fecha)}</p>
+                  </div>
+                  <div className="flex-1 grid grid-cols-3 items-center gap-2">
+                    <div className="text-right">
+                      <p className="font-semibold">{juego.equipo_local_nombre}</p>
+                      <p className="text-xs text-gray-500">Local</p>
+                    </div>
+                    <div className="text-center">
+                      <span className="badge-gray">VS</span>
+                    </div>
+                    <div className="text-left">
+                      <p className="font-semibold">{juego.equipo_visitante_nombre}</p>
+                      <p className="text-xs text-gray-500">Visitante</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="card p-8 text-center text-gray-500">
+              No hay juegos programados
+            </div>
+          )}
+
+          {/* Últimos resultados */}
+          <div className="flex justify-between items-center mt-8">
+            <h2 className="text-xl font-bold text-gray-900">Últimos Resultados</h2>
+          </div>
+
+          {ultimosResultados.length > 0 ? (
+            <div className="space-y-4">
+              {ultimosResultados.map((juego) => (
+                <Link
+                  key={juego.id}
+                  to={`/juegos/${juego.id}`}
+                  className="card-hover p-4 flex items-center gap-4"
+                >
+                  <div className="text-center min-w-[60px]">
+                    <p className="text-xs text-gray-500">{formatDate(juego.fecha, 'dd/MM')}</p>
+                    <span className="badge-success text-xs">Final</span>
+                  </div>
+                  <div className="flex-1 grid grid-cols-3 items-center gap-2">
+                    <div className="text-right">
+                      <p className={`font-semibold ${juego.puntos_local > juego.puntos_visitante ? 'text-green-600' : ''}`}>
+                        {juego.equipo_local_nombre}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <span className="font-display text-2xl">
+                        {juego.puntos_local} - {juego.puntos_visitante}
+                      </span>
+                    </div>
+                    <div className="text-left">
+                      <p className={`font-semibold ${juego.puntos_visitante > juego.puntos_local ? 'text-green-600' : ''}`}>
+                        {juego.equipo_visitante_nombre}
+                      </p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="card p-8 text-center text-gray-500">
+              No hay resultados disponibles
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Tabla de posiciones mini */}
+          <div className="card">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+              <h3 className="font-bold text-gray-900">Posiciones</h3>
+              <Link to="/posiciones" className="text-primary-500 text-sm">
+                Ver completa
+              </Link>
+            </div>
+            <div className="p-4">
+              {posiciones.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-gray-500">
+                      <th className="text-left font-medium pb-2">#</th>
+                      <th className="text-left font-medium pb-2">Equipo</th>
+                      <th className="text-center font-medium pb-2">G</th>
+                      <th className="text-center font-medium pb-2">P</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {posiciones.map((equipo, index) => (
+                      <tr key={equipo.equipo_id} className="border-t border-gray-50">
+                        <td className="py-2 font-bold text-gray-400">{index + 1}</td>
+                        <td className="py-2">
+                          <Link 
+                            to={`/equipos/${equipo.equipo_id}`}
+                            className="font-medium hover:text-primary-500"
+                          >
+                            {equipo.equipo_corto || equipo.equipo_nombre}
+                          </Link>
+                        </td>
+                        <td className="py-2 text-center text-green-600">{equipo.juegos_ganados}</td>
+                        <td className="py-2 text-center text-red-500">{equipo.juegos_perdidos}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-gray-500 text-center py-4">Sin datos</p>
+              )}
+            </div>
+          </div>
+
+          {/* Líderes */}
+          <div className="card">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+              <h3 className="font-bold text-gray-900">
+                <TrendingUp className="inline mr-2" size={18} />
+                Líderes en Puntos
+              </h3>
+              <Link to="/estadisticas" className="text-primary-500 text-sm">
+                Ver más
+              </Link>
+            </div>
+            <div className="p-4">
+              {lideres.length > 0 ? (
+                <div className="space-y-3">
+                  {lideres.map((jugador, index) => (
+                    <Link
+                      key={jugador.jugador_id}
+                      to={`/jugadores/${jugador.jugador_id}`}
+                      className="flex items-center gap-3 hover:bg-gray-50 -mx-2 px-2 py-1 rounded"
+                    >
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                        index === 0 ? 'bg-yellow-100 text-yellow-700' :
+                        index === 1 ? 'bg-gray-100 text-gray-600' :
+                        index === 2 ? 'bg-orange-100 text-orange-700' :
+                        'bg-gray-50 text-gray-400'
+                      }`}>
+                        {index + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">
+                          {jugador.nombre} {jugador.apellido}
+                        </p>
+                        <p className="text-xs text-gray-500">{jugador.equipo}</p>
+                      </div>
+                      <span className="font-bold text-primary-500">{jugador.ppj}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-center py-4">Sin datos</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
