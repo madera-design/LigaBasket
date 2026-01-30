@@ -143,7 +143,7 @@ export default function PublicLayout() {
               <span className="font-display text-white text-xl">LIGA BASQUETBOL</span>
             </div>
             <p className="text-sm">
-              © {new Date().getFullYear()} Sistema de Administración de Liga
+              © {new Date().getFullYear()} Madera Design
             </p>
           </div>
         </div>

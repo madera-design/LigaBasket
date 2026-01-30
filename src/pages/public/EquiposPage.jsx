@@ -44,12 +44,16 @@ export default function EquiposPage() {
             className="card-hover p-6"
           >
             <div className="flex items-center gap-4">
-              <div 
-                className="w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-bold"
-                style={{ backgroundColor: equipo.color_primario || '#6b7280' }}
-              >
-                {equipo.nombre_corto || equipo.nombre.charAt(0)}
-              </div>
+              {equipo.logo_url ? (
+                <img src={equipo.logo_url} alt={equipo.nombre} className="w-16 h-16 rounded-full object-cover" />
+              ) : (
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-bold"
+                  style={{ backgroundColor: equipo.color_primario || '#6b7280' }}
+                >
+                  {equipo.nombre_corto || equipo.nombre.charAt(0)}
+                </div>
+              )}
               <div>
                 <h3 className="font-bold text-lg">{equipo.nombre}</h3>
                 {equipo.entrenador && (

@@ -117,14 +117,14 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Info */}
+          {/* Info 
           <div className="mt-8 p-4 bg-blue-50 rounded-lg">
             <p className="text-sm text-blue-800">
               <strong>Nota:</strong> Para crear una cuenta de administrador, 
               accede a tu proyecto de Supabase y crea un usuario en 
               Authentication → Users.
             </p>
-          </div>
+          </div>*/}
         </div>
       </div>
     </div>

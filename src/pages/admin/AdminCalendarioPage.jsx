@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, X, Calendar, MapPin } from 'lucide-react'
+import { Plus, X, Calendar, MapPin, Trash2, Eye, ClipboardEdit } from 'lucide-react'
 import { getJuegos, createJuego, deleteJuego } from '../../services/juegos.service'
 import { getEquipos } from '../../services/equipos.service'
 import { ESTADOS_JUEGO } from '../../utils/constants'
 import { formatDate, formatTime } from '../../utils/formatters'
+import ConfirmModal from '../../components/ConfirmModal'
 import toast from 'react-hot-toast'
 
 export default function AdminCalendarioPage() {
@@ -20,6 +21,7 @@ export default function AdminCalendarioPage() {
     lugar: '',
   })
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null)
 
   useEffect(() => {
     fetchData()
@@ -27,12 +29,20 @@ export default function AdminCalendarioPage() {
 
   const fetchData = async () => {
     try {
-      const [juegosData, equiposData] = await Promise.all([
+      const [juegosResult, equiposResult] = await Promise.allSettled([
         getJuegos({ ascending: true }),
         getEquipos()
       ])
-      setJuegos(juegosData)
-      setEquipos(equiposData)
+      if (juegosResult.status === 'fulfilled') {
+        setJuegos(juegosResult.value)
+      } else {
+        toast.error('Error al cargar juegos')
+      }
+      if (equiposResult.status === 'fulfilled') {
+        setEquipos(equiposResult.value)
+      } else {
+        toast.error('Error al cargar equipos')
+      }
     } catch (error) {
       toast.error('Error al cargar datos')
     } finally {
@@ -75,11 +85,12 @@ export default function AdminCalendarioPage() {
     }
   }
 
-  const handleDelete = async (juego) => {
-    if (!confirm('¿Eliminar este juego?')) return
+  const handleDelete = async () => {
+    if (!confirmDelete) return
     try {
-      await deleteJuego(juego.id)
+      await deleteJuego(confirmDelete.id)
       toast.success('Juego eliminado')
+      setConfirmDelete(null)
       fetchData()
     } catch (error) {
       toast.error('Error al eliminar')
@@ -115,54 +126,83 @@ export default function AdminCalendarioPage() {
         </button>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {juegos.length > 0 ? (
-          juegos.map((juego) => (
-            <div key={juego.id} className="card p-4">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="text-center sm:text-left min-w-[100px]">
-                  <p className="text-sm text-gray-500">{formatDate(juego.fecha, 'EEE dd MMM')}</p>
-                  <p className="font-bold">{formatTime(juego.fecha)}</p>
-                  {getEstadoBadge(juego.estado)}
-                </div>
-                
-                <div className="flex-1 grid grid-cols-3 items-center gap-2 text-center">
-                  <div>
-                    <p className="font-bold">{juego.equipo_local_corto || juego.equipo_local_nombre}</p>
-                    <p className="text-xs text-gray-500">Local</p>
-                  </div>
-                  <div>
-                    {juego.estado === 'finalizado' ? (
-                      <span className="font-display text-2xl">{juego.puntos_local} - {juego.puntos_visitante}</span>
-                    ) : (
-                      <span className="text-gray-400">VS</span>
+          juegos.map((juego) => {
+            const esFinalizado = juego.estado === 'finalizado'
+            const esProgramado = juego.estado === 'programado'
+            const localGana = esFinalizado && juego.puntos_local > juego.puntos_visitante
+            const visitanteGana = esFinalizado && juego.puntos_visitante > juego.puntos_local
+
+            return (
+              <div key={juego.id} className="card overflow-hidden">
+                {/* Top bar: fecha, estado, lugar, acciones */}
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-gray-600 font-medium">{formatDate(juego.fecha, 'EEE dd MMM')}</span>
+                    <span className="text-gray-400">|</span>
+                    <span className="font-bold text-gray-800">{formatTime(juego.fecha)}</span>
+                    {juego.lugar && (
+                      <>
+                        <span className="text-gray-400">|</span>
+                        <span className="text-gray-500 flex items-center gap-1">
+                          <MapPin size={13} />
+                          {juego.lugar}
+                        </span>
+                      </>
                     )}
                   </div>
-                  <div>
-                    <p className="font-bold">{juego.equipo_visitante_corto || juego.equipo_visitante_nombre}</p>
-                    <p className="text-xs text-gray-500">Visitante</p>
+                  <div className="flex items-center gap-2">
+                    {getEstadoBadge(juego.estado)}
+                    <Link to={`/admin/juegos/${juego.id}`} className="btn-secondary btn-sm flex items-center gap-1">
+                      {esProgramado ? <><ClipboardEdit size={14} /> Registrar</> : <><Eye size={14} /> Ver</>}
+                    </Link>
+                    {esProgramado && (
+                      <button onClick={() => setConfirmDelete(juego)} className="btn-ghost btn-sm text-red-500 hover:bg-red-50">
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {juego.lugar && (
-                    <span className="text-sm text-gray-500 flex items-center gap-1">
-                      <MapPin size={14} />
-                      {juego.lugar}
-                    </span>
-                  )}
-                  <Link to={`/admin/juegos/${juego.id}`} className="btn-secondary btn-sm">
-                    {juego.estado === 'programado' ? 'Registrar' : 'Ver'}
-                  </Link>
-                  {juego.estado === 'programado' && (
-                    <button onClick={() => handleDelete(juego)} className="btn-ghost btn-sm text-red-500">
-                      <X size={16} />
-                    </button>
-                  )}
+                {/* Matchup */}
+                <div className="px-4 py-4">
+                  <div className="grid grid-cols-3 items-center gap-2">
+                    {/* Local */}
+                    <div className="flex items-center gap-3">
+                      <TeamLogo logo={juego.local_logo} color={juego.local_color} name={juego.local_corto || juego.local_nombre} />
+                      <div>
+                        <p className={`font-bold text-sm ${localGana ? 'text-green-600' : ''}`}>{juego.local_nombre}</p>
+                        <p className="text-xs text-gray-400">Local</p>
+                      </div>
+                    </div>
+
+                    {/* Score / VS */}
+                    <div className="text-center">
+                      {esFinalizado ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <span className={`font-display text-3xl ${localGana ? 'text-green-600' : 'text-gray-800'}`}>{juego.puntos_local}</span>
+                          <span className="text-gray-300 text-xl">-</span>
+                          <span className={`font-display text-3xl ${visitanteGana ? 'text-green-600' : 'text-gray-800'}`}>{juego.puntos_visitante}</span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-300 font-bold text-lg">VS</span>
+                      )}
+                    </div>
+
+                    {/* Visitante */}
+                    <div className="flex items-center gap-3 justify-end">
+                      <div className="text-right">
+                        <p className={`font-bold text-sm ${visitanteGana ? 'text-green-600' : ''}`}>{juego.visitante_nombre}</p>
+                        <p className="text-xs text-gray-400">Visitante</p>
+                      </div>
+                      <TeamLogo logo={juego.visitante_logo} color={juego.visitante_color} name={juego.visitante_corto || juego.visitante_nombre} />
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            )
+          })
         ) : (
           <div className="card p-8 text-center text-gray-500">
             <Calendar className="mx-auto mb-2 text-gray-300" size={48} />
@@ -170,6 +210,15 @@ export default function AdminCalendarioPage() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={handleDelete}
+        title="Eliminar juego"
+        message="¿Estas seguro de eliminar este juego? Esta accion no se puede deshacer."
+        confirmText="Eliminar"
+      />
 
       {showModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -218,6 +267,20 @@ export default function AdminCalendarioPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function TeamLogo({ logo, color, name }) {
+  if (logo) {
+    return <img src={logo} alt={name} className="w-10 h-10 object-contain" />
+  }
+  return (
+    <div
+      className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold"
+      style={{ backgroundColor: color || '#6B7280' }}
+    >
+      {(name || '').substring(0, 3).toUpperCase()}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Save, CheckCircle } from 'lucide-react'
-import { getJuegoWithStats, finalizarJuego } from '../../services/juegos.service'
+import { ArrowLeft, Save } from 'lucide-react'
+import { getJuegoWithStats, updateJuego } from '../../services/juegos.service'
 import { getJugadoresByEquipo } from '../../services/jugadores.service'
 import { saveEstadisticasMultiple } from '../../services/estadisticas.service'
 import { formatDate, formatTime, formatFullName } from '../../utils/formatters'
@@ -28,8 +28,8 @@ export default function AdminJuegoPage() {
       setJuego(juegoData)
 
       const [localPlayers, visitPlayers] = await Promise.all([
-        getJugadoresByEquipo(juegoData.equipo_local_id),
-        getJugadoresByEquipo(juegoData.equipo_visitante_id)
+        getJugadoresByEquipo(juegoData.local_id),
+        getJugadoresByEquipo(juegoData.visitante_id)
       ])
       setJugadoresLocal(localPlayers)
       setJugadoresVisitante(visitPlayers)
@@ -41,11 +41,11 @@ export default function AdminJuegoPage() {
 
       localPlayers.forEach(j => {
         const existing = existingStats.find(s => s.jugador_id === j.id)
-        localStats[j.id] = existing || createEmptyStats(j.id, juegoData.equipo_local_id)
+        localStats[j.id] = existing || createEmptyStats(j.id, juegoData.local_id)
       })
       visitPlayers.forEach(j => {
         const existing = existingStats.find(s => s.jugador_id === j.id)
-        visitStats[j.id] = existing || createEmptyStats(j.id, juegoData.equipo_visitante_id)
+        visitStats[j.id] = existing || createEmptyStats(j.id, juegoData.visitante_id)
       })
 
       setStatsLocal(localStats)
@@ -69,14 +69,15 @@ export default function AdminJuegoPage() {
     robos: 0,
     bloqueos: 0,
     perdidas: 0,
-    faltas_personales: 0,
+    faltas: 0,
     tiros_campo_intentados: 0,
     tiros_campo_convertidos: 0,
     triples_intentados: 0,
     triples_convertidos: 0,
     tiros_libres_intentados: 0,
     tiros_libres_convertidos: 0,
-    minutos_jugados: 0,
+    minutos: 0,
+    segundos: 0,
   })
 
   const updateStat = (jugadorId, field, value, isLocal) => {
@@ -94,7 +95,7 @@ export default function AdminJuegoPage() {
     return Object.values(stats).reduce((sum, s) => sum + (s.puntos || 0), 0)
   }
 
-  const handleSave = async (finalizar = false) => {
+  const handleSave = async () => {
     setSaving(true)
     try {
       const allStats = [
@@ -104,16 +105,17 @@ export default function AdminJuegoPage() {
 
       await saveEstadisticasMultiple(allStats)
 
-      if (finalizar) {
-        const puntosLocal = calculateTeamPoints(statsLocal)
-        const puntosVisitante = calculateTeamPoints(statsVisitante)
-        await finalizarJuego(id, puntosLocal, puntosVisitante)
-        toast.success('Juego finalizado')
-        navigate('/admin/calendario')
-      } else {
-        toast.success('Estadísticas guardadas')
-        fetchData()
-      }
+      // Actualizar marcador del juego
+      const puntosLocal = calculateTeamPoints(statsLocal)
+      const puntosVisitante = calculateTeamPoints(statsVisitante)
+      await updateJuego(id, {
+        puntos_local: puntosLocal,
+        puntos_visitante: puntosVisitante,
+        estado: 'finalizado',
+      })
+
+      toast.success('Juego guardado')
+      navigate('/admin/calendario')
     } catch (error) {
       toast.error('Error al guardar')
       console.error(error)
@@ -148,8 +150,18 @@ export default function AdminJuegoPage() {
       {/* Marcador */}
       <div className="card p-6">
         <div className="grid grid-cols-3 items-center text-center">
-          <div>
-            <p className="font-bold text-lg">{juego.equipo_local_nombre}</p>
+          <div className="flex flex-col items-center gap-2">
+            {juego.local_logo ? (
+              <img src={juego.local_logo} alt={juego.local_nombre} className="w-16 h-16 object-contain" />
+            ) : (
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center text-white text-lg font-bold"
+                style={{ backgroundColor: juego.local_color || '#6B7280' }}
+              >
+                {(juego.local_corto || juego.local_nombre || '').substring(0, 3).toUpperCase()}
+              </div>
+            )}
+            <p className="font-bold text-lg">{juego.local_nombre}</p>
             <p className="text-xs text-gray-500">Local</p>
           </div>
           <div>
@@ -158,8 +170,18 @@ export default function AdminJuegoPage() {
               {juego.estado === 'finalizado' ? 'Finalizado' : 'En registro'}
             </span>
           </div>
-          <div>
-            <p className="font-bold text-lg">{juego.equipo_visitante_nombre}</p>
+          <div className="flex flex-col items-center gap-2">
+            {juego.visitante_logo ? (
+              <img src={juego.visitante_logo} alt={juego.visitante_nombre} className="w-16 h-16 object-contain" />
+            ) : (
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center text-white text-lg font-bold"
+                style={{ backgroundColor: juego.visitante_color || '#6B7280' }}
+              >
+                {(juego.visitante_corto || juego.visitante_nombre || '').substring(0, 3).toUpperCase()}
+              </div>
+            )}
+            <p className="font-bold text-lg">{juego.visitante_nombre}</p>
             <p className="text-xs text-gray-500">Visitante</p>
           </div>
         </div>
@@ -168,14 +190,20 @@ export default function AdminJuegoPage() {
       {/* Stats Tables */}
       <div className="grid lg:grid-cols-2 gap-6">
         <StatsTable
-          title={juego.equipo_local_nombre}
+          title={juego.local_nombre}
+          logo={juego.local_logo}
+          color={juego.local_color}
+          corto={juego.local_corto}
           jugadores={jugadoresLocal}
           stats={statsLocal}
           onUpdate={(jId, field, val) => updateStat(jId, field, val, true)}
           disabled={juego.estado === 'finalizado'}
         />
         <StatsTable
-          title={juego.equipo_visitante_nombre}
+          title={juego.visitante_nombre}
+          logo={juego.visitante_logo}
+          color={juego.visitante_color}
+          corto={juego.visitante_corto}
           jugadores={jugadoresVisitante}
           stats={statsVisitante}
           onUpdate={(jId, field, val) => updateStat(jId, field, val, false)}
@@ -185,14 +213,10 @@ export default function AdminJuegoPage() {
 
       {/* Actions */}
       {juego.estado !== 'finalizado' && (
-        <div className="flex justify-end gap-4">
-          <button onClick={() => handleSave(false)} disabled={saving} className="btn-secondary">
+        <div className="flex justify-end">
+          <button onClick={handleSave} disabled={saving} className="btn-primary">
             <Save size={20} />
             {saving ? 'Guardando...' : 'Guardar'}
-          </button>
-          <button onClick={() => handleSave(true)} disabled={saving} className="btn-primary">
-            <CheckCircle size={20} />
-            Finalizar Juego
           </button>
         </div>
       )}
@@ -200,19 +224,31 @@ export default function AdminJuegoPage() {
   )
 }
 
-function StatsTable({ title, jugadores, stats, onUpdate, disabled }) {
+function StatsTable({ title, logo, color, corto, jugadores, stats, onUpdate, disabled }) {
   const fields = [
     { key: 'puntos', label: 'PTS', width: 'w-16' },
     { key: 'asistencias', label: 'AST', width: 'w-14' },
     { key: 'rebotes_defensivos', label: 'REB', width: 'w-14' },
     { key: 'robos', label: 'ROB', width: 'w-14' },
     { key: 'bloqueos', label: 'BLK', width: 'w-14' },
-    { key: 'faltas_personales', label: 'FLS', width: 'w-14' },
+    { key: 'faltas', label: 'FLS', width: 'w-14' },
   ]
 
   return (
     <div className="card overflow-hidden">
-      <div className="p-4 bg-gray-50 border-b font-bold">{title}</div>
+      <div className="p-4 bg-gray-50 border-b font-bold flex items-center gap-3">
+        {logo ? (
+          <img src={logo} alt={title} className="w-8 h-8 object-contain" />
+        ) : (
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
+            style={{ backgroundColor: color || '#6B7280' }}
+          >
+            {(corto || title || '').charAt(0)}
+          </div>
+        )}
+        {title}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -228,7 +264,18 @@ function StatsTable({ title, jugadores, stats, onUpdate, disabled }) {
             {jugadores.map(j => (
               <tr key={j.id} className="border-t">
                 <td className="px-3 py-2 font-bold">{j.numero}</td>
-                <td className="px-3 py-2 truncate max-w-[120px]">{formatFullName(j.nombre, j.apellido)}</td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2 max-w-[150px]">
+                    {j.foto_url ? (
+                      <img src={j.foto_url} alt={j.nombre} className="w-7 h-7 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-bold shrink-0">
+                        {j.nombre?.charAt(0)}{j.apellido?.charAt(0)}
+                      </div>
+                    )}
+                    <span className="truncate">{formatFullName(j.nombre, j.apellido)}</span>
+                  </div>
+                </td>
                 {fields.map(f => (
                   <td key={f.key} className="px-1 py-1">
                     <input

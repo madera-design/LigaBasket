@@ -7,7 +7,7 @@ const TABLE = 'juegos'
  */
 export const getJuegos = async (filters = {}) => {
   let query = supabase
-    .from('v_calendario_juegos')
+    .from('vista_calendario')
     .select('*')
 
   if (filters.temporadaId) {
@@ -15,7 +15,7 @@ export const getJuegos = async (filters = {}) => {
   }
 
   if (filters.equipoId) {
-    query = query.or(`equipo_local_id.eq.${filters.equipoId},equipo_visitante_id.eq.${filters.equipoId}`)
+    query = query.or(`local_id.eq.${filters.equipoId},visitante_id.eq.${filters.equipoId}`)
   }
 
   if (filters.estado) {
@@ -47,7 +47,7 @@ export const getJuegos = async (filters = {}) => {
  */
 export const getProximosJuegos = async (limit = 5) => {
   const { data, error } = await supabase
-    .from('v_calendario_juegos')
+    .from('vista_calendario')
     .select('*')
     .eq('estado', 'programado')
     .gte('fecha', new Date().toISOString())
@@ -63,7 +63,7 @@ export const getProximosJuegos = async (limit = 5) => {
  */
 export const getUltimosResultados = async (limit = 5) => {
   const { data, error } = await supabase
-    .from('v_calendario_juegos')
+    .from('vista_calendario')
     .select('*')
     .eq('estado', 'finalizado')
     .order('fecha', { ascending: false })
@@ -78,7 +78,7 @@ export const getUltimosResultados = async (limit = 5) => {
  */
 export const getJuegoById = async (id) => {
   const { data, error } = await supabase
-    .from('v_calendario_juegos')
+    .from('vista_calendario')
     .select('*')
     .eq('id', id)
     .single()
@@ -210,9 +210,9 @@ export const deleteJuego = async (id) => {
  */
 export const getJuegosByEquipo = async (equipoId, limit = 10) => {
   const { data, error } = await supabase
-    .from('v_calendario_juegos')
+    .from('vista_calendario')
     .select('*')
-    .or(`equipo_local_id.eq.${equipoId},equipo_visitante_id.eq.${equipoId}`)
+    .or(`local_id.eq.${equipoId},visitante_id.eq.${equipoId}`)
     .order('fecha', { ascending: false })
     .limit(limit)
 
@@ -228,7 +228,7 @@ export const getCalendarioMensual = async (year, month) => {
   const endDate = new Date(year, month, 0)
 
   const { data, error } = await supabase
-    .from('v_calendario_juegos')
+    .from('vista_calendario')
     .select('*')
     .gte('fecha', startDate.toISOString())
     .lte('fecha', endDate.toISOString())

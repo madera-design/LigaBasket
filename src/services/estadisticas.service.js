@@ -32,7 +32,7 @@ export const getEstadisticasJugador = async (jugadorId) => {
  */
 export const getEstadisticasPromedioJugador = async (jugadorId) => {
   const { data, error } = await supabase
-    .from('v_estadisticas_promedio_jugador')
+    .from('vista_estadisticas_jugador')
     .select('*')
     .eq('jugador_id', jugadorId)
     .single()
@@ -113,7 +113,7 @@ export const deleteEstadisticasJuego = async (juegoId) => {
  */
 export const getLideres = async (categoria = 'ppj', limit = 10) => {
   const { data, error } = await supabase
-    .from('v_estadisticas_promedio_jugador')
+    .from('vista_estadisticas_jugador')
     .select('*')
     .gt('juegos_jugados', 0)
     .order(categoria, { ascending: false })
@@ -128,7 +128,7 @@ export const getLideres = async (categoria = 'ppj', limit = 10) => {
  */
 export const getAllPromedios = async () => {
   const { data, error } = await supabase
-    .from('v_estadisticas_promedio_jugador')
+    .from('vista_estadisticas_jugador')
     .select('*')
     .gt('juegos_jugados', 0)
     .order('ppj', { ascending: false })
@@ -142,7 +142,7 @@ export const getAllPromedios = async () => {
  */
 export const getTablaPosiciones = async (temporadaId = null) => {
   let query = supabase
-    .from('v_tabla_posiciones')
+    .from('vista_posiciones')
     .select('*')
 
   if (temporadaId) {
@@ -152,6 +152,84 @@ export const getTablaPosiciones = async (temporadaId = null) => {
   const { data, error } = await query.order('posicion')
   if (error) throw error
   return data
+}
+
+/**
+ * Calcula tabla de posiciones desde juegos finalizados
+ * Pts: G*2 + P*1, ordenado por Pts desc, DP desc
+ */
+export const calcularPosiciones = async () => {
+  const { data: juegos, error } = await supabase
+    .from('vista_calendario')
+    .select('*')
+    .eq('estado', 'finalizado')
+
+  if (error) throw error
+
+  const equiposMap = {}
+
+  juegos.forEach(j => {
+    // Inicializar equipos si no existen
+    if (!equiposMap[j.local_id]) {
+      equiposMap[j.local_id] = {
+        equipo_id: j.local_id,
+        equipo_nombre: j.local_nombre,
+        equipo_corto: j.local_corto,
+        equipo_logo: j.local_logo,
+        equipo_color: j.local_color,
+        juegos: 0, ganados: 0, perdidos: 0,
+        puntos_favor: 0, puntos_contra: 0,
+        puntos_extras: 0,
+      }
+    }
+    if (!equiposMap[j.visitante_id]) {
+      equiposMap[j.visitante_id] = {
+        equipo_id: j.visitante_id,
+        equipo_nombre: j.visitante_nombre,
+        equipo_corto: j.visitante_corto,
+        equipo_logo: j.visitante_logo,
+        equipo_color: j.visitante_color,
+        juegos: 0, ganados: 0, perdidos: 0,
+        puntos_favor: 0, puntos_contra: 0,
+        puntos_extras: 0,
+      }
+    }
+
+    const local = equiposMap[j.local_id]
+    const visitante = equiposMap[j.visitante_id]
+
+    // Local
+    local.juegos++
+    local.puntos_favor += j.puntos_local
+    local.puntos_contra += j.puntos_visitante
+    if (j.puntos_local > j.puntos_visitante) {
+      local.ganados++
+    } else {
+      local.perdidos++
+    }
+
+    // Visitante
+    visitante.juegos++
+    visitante.puntos_favor += j.puntos_visitante
+    visitante.puntos_contra += j.puntos_local
+    if (j.puntos_visitante > j.puntos_local) {
+      visitante.ganados++
+    } else {
+      visitante.perdidos++
+    }
+  })
+
+  // Calcular campos derivados y ordenar
+  const tabla = Object.values(equiposMap).map(e => ({
+    ...e,
+    pts: e.ganados * 2 + e.perdidos * 1,
+    diferencia: e.puntos_favor - e.puntos_contra,
+    porcentaje: e.juegos > 0 ? Math.round((e.ganados / e.juegos) * 100) : 0,
+  }))
+
+  tabla.sort((a, b) => b.pts - a.pts || b.diferencia - a.diferencia)
+
+  return tabla
 }
 
 /**
@@ -243,6 +321,61 @@ export const getHeadToHead = async (equipo1Id, equipo2Id) => {
   }
 }
 
+/**
+ * Obtiene líderes por totales acumulados de una categoría
+ */
+export const getLideresTotales = async (categoria = 'puntos', limit = 10) => {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select(`
+      jugador_id,
+      puntos,
+      triples_convertidos,
+      asistencias,
+      bloqueos,
+      robos,
+      rebotes_ofensivos,
+      rebotes_defensivos,
+      jugador:jugadores (
+        id, nombre, apellido, numero, foto_url,
+        equipo:equipos (
+          id, nombre, nombre_corto
+        )
+      )
+    `)
+
+  if (error) throw error
+
+  const jugadorMap = {}
+  data.forEach(s => {
+    const jid = s.jugador_id
+    if (!jugadorMap[jid]) {
+      jugadorMap[jid] = {
+        jugador_id: jid,
+        nombre: s.jugador?.nombre || '',
+        apellido: s.jugador?.apellido || '',
+        numero: s.jugador?.numero || 0,
+        foto_url: s.jugador?.foto_url || null,
+        equipo_nombre: s.jugador?.equipo?.nombre || '',
+        equipo_corto: s.jugador?.equipo?.nombre_corto || '',
+        total: 0,
+      }
+    }
+    let valor = 0
+    if (categoria === 'rebotes') {
+      valor = (s.rebotes_ofensivos || 0) + (s.rebotes_defensivos || 0)
+    } else {
+      valor = s[categoria] || 0
+    }
+    jugadorMap[jid].total += valor
+  })
+
+  return Object.values(jugadorMap)
+    .filter(j => j.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit)
+}
+
 export default {
   getEstadisticasJugador,
   getEstadisticasPromedioJugador,
@@ -251,8 +384,10 @@ export default {
   saveEstadisticasMultiple,
   deleteEstadisticasJuego,
   getLideres,
+  getLideresTotales,
   getAllPromedios,
   getTablaPosiciones,
+  calcularPosiciones,
   updateTablaPosiciones,
   getRecords,
   getHeadToHead,

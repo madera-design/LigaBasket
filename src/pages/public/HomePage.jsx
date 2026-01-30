@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { Calendar, Users, Trophy, ArrowRight, TrendingUp } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { getProximosJuegos, getUltimosResultados } from '../../services/juegos.service'
-import { getTablaPosiciones, getLideres } from '../../services/estadisticas.service'
+import { calcularPosiciones, getLideres } from '../../services/estadisticas.service'
 import { formatDate, formatTime } from '../../utils/formatters'
 
 export default function HomePage() {
@@ -18,7 +18,7 @@ export default function HomePage() {
         const [juegos, resultados, tabla, lideresData] = await Promise.all([
           getProximosJuegos(3),
           getUltimosResultados(3),
-          getTablaPosiciones(),
+          calcularPosiciones(),
           getLideres('ppj', 5),
         ])
         setProximosJuegos(juegos)
@@ -94,16 +94,16 @@ export default function HomePage() {
                     <p className="text-sm text-gray-500">{formatTime(juego.fecha)}</p>
                   </div>
                   <div className="flex-1 grid grid-cols-3 items-center gap-2">
-                    <div className="text-right">
-                      <p className="font-semibold">{juego.equipo_local_nombre}</p>
-                      <p className="text-xs text-gray-500">Local</p>
+                    <div className="flex flex-col items-end gap-1">
+                      <TeamAvatar logo={juego.local_logo} color={juego.local_color} name={juego.local_corto || juego.local_nombre} size="sm" />
+                      <p className="font-semibold text-sm">{juego.local_nombre}</p>
                     </div>
                     <div className="text-center">
                       <span className="badge-gray">VS</span>
                     </div>
-                    <div className="text-left">
-                      <p className="font-semibold">{juego.equipo_visitante_nombre}</p>
-                      <p className="text-xs text-gray-500">Visitante</p>
+                    <div className="flex flex-col items-start gap-1">
+                      <TeamAvatar logo={juego.visitante_logo} color={juego.visitante_color} name={juego.visitante_corto || juego.visitante_nombre} size="sm" />
+                      <p className="font-semibold text-sm">{juego.visitante_nombre}</p>
                     </div>
                   </div>
                 </Link>
@@ -133,9 +133,10 @@ export default function HomePage() {
                     <span className="badge-success text-xs">Final</span>
                   </div>
                   <div className="flex-1 grid grid-cols-3 items-center gap-2">
-                    <div className="text-right">
-                      <p className={`font-semibold ${juego.puntos_local > juego.puntos_visitante ? 'text-green-600' : ''}`}>
-                        {juego.equipo_local_nombre}
+                    <div className="flex flex-col items-end gap-1">
+                      <TeamAvatar logo={juego.local_logo} color={juego.local_color} name={juego.local_corto || juego.local_nombre} size="sm" />
+                      <p className={`font-semibold text-sm ${juego.puntos_local > juego.puntos_visitante ? 'text-green-600' : ''}`}>
+                        {juego.local_nombre}
                       </p>
                     </div>
                     <div className="text-center">
@@ -143,9 +144,10 @@ export default function HomePage() {
                         {juego.puntos_local} - {juego.puntos_visitante}
                       </span>
                     </div>
-                    <div className="text-left">
-                      <p className={`font-semibold ${juego.puntos_visitante > juego.puntos_local ? 'text-green-600' : ''}`}>
-                        {juego.equipo_visitante_nombre}
+                    <div className="flex flex-col items-start gap-1">
+                      <TeamAvatar logo={juego.visitante_logo} color={juego.visitante_color} name={juego.visitante_corto || juego.visitante_nombre} size="sm" />
+                      <p className={`font-semibold text-sm ${juego.puntos_visitante > juego.puntos_local ? 'text-green-600' : ''}`}>
+                        {juego.visitante_nombre}
                       </p>
                     </div>
                   </div>
@@ -185,15 +187,16 @@ export default function HomePage() {
                       <tr key={equipo.equipo_id} className="border-t border-gray-50">
                         <td className="py-2 font-bold text-gray-400">{index + 1}</td>
                         <td className="py-2">
-                          <Link 
+                          <Link
                             to={`/equipos/${equipo.equipo_id}`}
-                            className="font-medium hover:text-primary-500"
+                            className="flex items-center gap-2 font-medium hover:text-primary-500"
                           >
+                            <TeamAvatar logo={equipo.equipo_logo} color={equipo.equipo_color} name={equipo.equipo_corto || equipo.equipo_nombre} size="xs" />
                             {equipo.equipo_corto || equipo.equipo_nombre}
                           </Link>
                         </td>
-                        <td className="py-2 text-center text-green-600">{equipo.juegos_ganados}</td>
-                        <td className="py-2 text-center text-red-500">{equipo.juegos_perdidos}</td>
+                        <td className="py-2 text-center text-green-600">{equipo.ganados}</td>
+                        <td className="py-2 text-center text-red-500">{equipo.perdidos}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -224,7 +227,7 @@ export default function HomePage() {
                       to={`/jugadores/${jugador.jugador_id}`}
                       className="flex items-center gap-3 hover:bg-gray-50 -mx-2 px-2 py-1 rounded"
                     >
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                         index === 0 ? 'bg-yellow-100 text-yellow-700' :
                         index === 1 ? 'bg-gray-100 text-gray-600' :
                         index === 2 ? 'bg-orange-100 text-orange-700' :
@@ -232,11 +235,14 @@ export default function HomePage() {
                       }`}>
                         {index + 1}
                       </span>
+                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-bold shrink-0">
+                        {jugador.nombre?.charAt(0)}{jugador.apellido?.charAt(0)}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">
                           {jugador.nombre} {jugador.apellido}
                         </p>
-                        <p className="text-xs text-gray-500">{jugador.equipo}</p>
+                        <p className="text-xs text-gray-500">{jugador.equipo_nombre}</p>
                       </div>
                       <span className="font-bold text-primary-500">{jugador.ppj}</span>
                     </Link>
@@ -249,6 +255,26 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function TeamAvatar({ logo, color, name, size = 'sm' }) {
+  const sizes = {
+    xs: 'w-6 h-6 text-[10px]',
+    sm: 'w-10 h-10 text-sm',
+  }
+  const cls = sizes[size] || sizes.sm
+
+  if (logo) {
+    return <img src={logo} alt={name} className={`${cls} rounded-full object-cover`} />
+  }
+  return (
+    <div
+      className={`${cls} rounded-full flex items-center justify-center text-white font-bold`}
+      style={{ backgroundColor: color || '#6B7280' }}
+    >
+      {(name || '').charAt(0)}
     </div>
   )
 }

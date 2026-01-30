@@ -130,7 +130,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">
-                      {juego.equipo_local_corto || juego.equipo_local_nombre} vs {juego.equipo_visitante_corto || juego.equipo_visitante_nombre}
+                      {juego.local_corto || juego.local_nombre} vs {juego.visitante_corto || juego.visitante_nombre}
                     </p>
                     <p className="text-sm text-gray-500">{juego.lugar || 'Por definir'}</p>
                   </div>

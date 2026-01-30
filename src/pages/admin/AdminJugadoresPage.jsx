@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, Search, X } from 'lucide-react'
-import { getJugadores, createJugador, updateJugador, deleteJugador } from '../../services/jugadores.service'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Pencil, Trash2, Search, X, Upload, Image, Power } from 'lucide-react'
+import { getJugadores, createJugador, updateJugador, deleteJugador, uploadJugadorFoto } from '../../services/jugadores.service'
 import { getEquipos } from '../../services/equipos.service'
 import { POSICIONES } from '../../utils/constants'
 import { formatFullName } from '../../utils/formatters'
+import ConfirmModal from '../../components/ConfirmModal'
 import toast from 'react-hot-toast'
 
 export default function AdminJugadoresPage() {
@@ -24,6 +25,10 @@ export default function AdminJugadoresPage() {
     peso: '',
   })
   const [saving, setSaving] = useState(false)
+  const [fotoFile, setFotoFile] = useState(null)
+  const [fotoPreview, setFotoPreview] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     fetchData()
@@ -53,9 +58,10 @@ export default function AdminJugadoresPage() {
         numero: jugador.numero,
         posicion: jugador.posicion || '',
         equipo_id: jugador.equipo_id || '',
-        altura: jugador.altura || '',
-        peso: jugador.peso || '',
+        altura: jugador.altura_cm ? (jugador.altura_cm / 100).toFixed(2) : '',
+        peso: jugador.peso_kg || '',
       })
+      setFotoPreview(jugador.foto_url || null)
     } else {
       setEditingJugador(null)
       setFormData({
@@ -67,13 +73,40 @@ export default function AdminJugadoresPage() {
         altura: '',
         peso: '',
       })
+      setFotoPreview(null)
     }
+    setFotoFile(null)
     setShowModal(true)
   }
 
   const handleCloseModal = () => {
     setShowModal(false)
     setEditingJugador(null)
+    setFotoFile(null)
+    setFotoPreview(null)
+  }
+
+  const handleFotoChange = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Solo se permiten imagenes')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('La imagen no debe superar 2MB')
+      return
+    }
+    setFotoFile(file)
+    const reader = new FileReader()
+    reader.onload = (ev) => setFotoPreview(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  const handleRemoveFoto = () => {
+    setFotoFile(null)
+    setFotoPreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleSubmit = async (e) => {
@@ -85,21 +118,34 @@ export default function AdminJugadoresPage() {
 
     setSaving(true)
     try {
+      const { altura, peso, ...rest } = formData
       const data = {
-        ...formData,
+        ...rest,
         numero: parseInt(formData.numero),
-        altura: formData.altura ? parseFloat(formData.altura) : null,
-        peso: formData.peso ? parseFloat(formData.peso) : null,
+        altura_cm: altura ? Math.round(parseFloat(altura) * 100) : null,
+        peso_kg: peso ? parseFloat(peso) : null,
         equipo_id: formData.equipo_id || null,
       }
 
+      let jugadorId
+
       if (editingJugador) {
         await updateJugador(editingJugador.id, data)
-        toast.success('Jugador actualizado')
+        jugadorId = editingJugador.id
+
+        if (!fotoPreview && editingJugador.foto_url) {
+          await updateJugador(jugadorId, { foto_url: null })
+        }
       } else {
-        await createJugador(data)
-        toast.success('Jugador creado')
+        const nuevoJugador = await createJugador(data)
+        jugadorId = nuevoJugador.id
       }
+
+      if (fotoFile && jugadorId) {
+        await uploadJugadorFoto(jugadorId, fotoFile)
+      }
+
+      toast.success(editingJugador ? 'Jugador actualizado' : 'Jugador creado')
       handleCloseModal()
       fetchData()
     } catch (error) {
@@ -109,14 +155,25 @@ export default function AdminJugadoresPage() {
     }
   }
 
-  const handleDelete = async (jugador) => {
-    if (!confirm(`¿Eliminar a "${formatFullName(jugador.nombre, jugador.apellido)}"?`)) return
+  const handleDelete = async () => {
+    if (!confirmDelete) return
     try {
-      await deleteJugador(jugador.id)
+      await deleteJugador(confirmDelete.id)
       toast.success('Jugador eliminado')
+      setConfirmDelete(null)
       fetchData()
     } catch (error) {
       toast.error('Error al eliminar')
+    }
+  }
+
+  const handleToggleStatus = async (jugador) => {
+    try {
+      await updateJugador(jugador.id, { activo: !jugador.activo })
+      toast.success(jugador.activo ? 'Jugador dado de baja' : 'Jugador activado')
+      fetchData()
+    } catch (error) {
+      toast.error('Error al cambiar estatus')
     }
   }
 
@@ -159,26 +216,41 @@ export default function AdminJugadoresPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>#</th>
+                <th className="w-18">#</th>
                 <th>Jugador</th>
                 <th>Equipo</th>
-                <th>Posición</th>
-                <th>Estado</th>
-                <th className="text-right">Acciones</th>
+                <th className="w-18">Posición</th>
+                <th className="w-18">Estado</th>
+                <th className="w-28 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {filteredJugadores.map((jugador) => (
                 <tr key={jugador.id}>
                   <td><span className="font-bold text-lg">{jugador.numero}</span></td>
-                  <td><span className="font-medium">{formatFullName(jugador.nombre, jugador.apellido)}</span></td>
+                  <td>
+                    <div className="flex items-center gap-3">
+                      {jugador.foto_url ? (
+                        <img src={jugador.foto_url} alt={jugador.nombre} className="w-9 h-9 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm font-bold">
+                          {jugador.nombre?.charAt(0)}{jugador.apellido?.charAt(0)}
+                        </div>
+                      )}
+                      <span className="font-medium">{formatFullName(jugador.nombre, jugador.apellido)}</span>
+                    </div>
+                  </td>
                   <td>{jugador.equipo?.nombre || <span className="text-gray-400">Sin equipo</span>}</td>
                   <td>{jugador.posicion ? <span className="badge-primary">{jugador.posicion}</span> : '-'}</td>
                   <td><span className={jugador.activo ? 'badge-success' : 'badge-gray'}>{jugador.activo ? 'Activo' : 'Inactivo'}</span></td>
                   <td>
                     <div className="flex justify-end gap-2">
+                      
+                      {/*<button onClick={() => handleToggleStatus(jugador)} className={`btn-ghost btn-sm ${jugador.activo ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'}`} title={jugador.activo ? 'Dar de baja' : 'Activar'}>
+                        <Power size={16} />
+                      </button>*/}
                       <button onClick={() => handleOpenModal(jugador)} className="btn-ghost btn-sm"><Pencil size={16} /></button>
-                      <button onClick={() => handleDelete(jugador)} className="btn-ghost btn-sm text-red-500 hover:bg-red-50"><Trash2 size={16} /></button>
+                      <button onClick={() => setConfirmDelete(jugador)} className="btn-ghost btn-sm text-red-500 hover:bg-red-50"><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>
@@ -188,6 +260,15 @@ export default function AdminJugadoresPage() {
         </div>
         {filteredJugadores.length === 0 && <div className="p-8 text-center text-gray-500">No se encontraron jugadores</div>}
       </div>
+
+      <ConfirmModal
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={handleDelete}
+        title="Eliminar jugador"
+        message={`¿Estas seguro de eliminar a "${confirmDelete ? formatFullName(confirmDelete.nombre, confirmDelete.apellido) : ''}"? Esta accion no se puede deshacer.`}
+        confirmText="Eliminar"
+      />
 
       {showModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -199,6 +280,47 @@ export default function AdminJugadoresPage() {
                 <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
               </div>
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Foto */}
+                <div>
+                  <label className="label">Foto del jugador</label>
+                  <div className="flex items-center gap-4">
+                    {fotoPreview ? (
+                      <div className="relative">
+                        <img src={fotoPreview} alt="Foto preview" className="w-16 h-16 rounded-full object-cover border" />
+                        <button
+                          type="button"
+                          onClick={handleRemoveFoto}
+                          className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400">
+                        <Image size={24} />
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFotoChange}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="btn-secondary btn-sm"
+                      >
+                        <Upload size={16} />
+                        {fotoPreview ? 'Cambiar' : 'Subir foto'}
+                      </button>
+                      <p className="text-xs text-gray-400 mt-1">PNG, JPG. Max 2MB</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="label">Nombre *</label>

@@ -49,8 +49,8 @@ export const getEquipoWithRoster = async (id) => {
         numero,
         posicion,
         foto_url,
-        altura,
-        peso,
+        altura_cm,
+        peso_kg,
         activo
       )
     `)

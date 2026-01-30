@@ -236,7 +236,7 @@ JOIN temporadas t ON tp.temporada_id = t.id;
 CREATE OR REPLACE FUNCTION actualizar_posiciones()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.estado = 'finalizado' AND (OLD.estado IS NULL OR OLD.estado != 'finalizado') THEN
+    IF NEW.estado = 'finalizado' AND (OLD.estado IS NULL OR OLD.estado != 'finalizado') AND NEW.temporada_id IS NOT NULL THEN
         -- Equipo local
         INSERT INTO tabla_posiciones (temporada_id, equipo_id, juegos_jugados, juegos_ganados, juegos_perdidos, puntos_favor, puntos_contra, diferencia_puntos, porcentaje_victorias)
         VALUES (
@@ -315,9 +315,3 @@ CREATE POLICY "Admin escribe" ON tabla_posiciones FOR ALL USING (auth.role() = '
 -- DATOS DE EJEMPLO
 -- =============================================
 INSERT INTO temporadas (nombre, fecha_inicio, activa) VALUES ('Temporada 2024', '2024-01-15', true);
-
-INSERT INTO equipos (nombre, nombre_corto, color_primario, entrenador) VALUES
-('Lobos del Norte', 'LOB', '#1E3A5F', 'Carlos Mendoza'),
-('Águilas Doradas', 'AGU', '#B8860B', 'Roberto Silva'),
-('Tiburones Azules', 'TIB', '#0077BE', 'Miguel Torres'),
-('Leones Rojos', 'LEO', '#8B0000', 'Fernando García');
