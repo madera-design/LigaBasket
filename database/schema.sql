@@ -60,12 +60,60 @@ CREATE TABLE jugadores (
 );
 
 -- =============================================
+-- TABLA: torneos
+-- Configuracion de torneos
+-- =============================================
+CREATE TABLE torneos (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    temporada_id UUID NOT NULL REFERENCES temporadas(id) ON DELETE CASCADE,
+    nombre VARCHAR(200) NOT NULL,
+    fecha_inicio DATE NOT NULL,
+    dias_juego INTEGER[] NOT NULL,
+    horarios TEXT[] NOT NULL,
+    lugar VARCHAR(200),
+    fase VARCHAR(20) DEFAULT 'regular' CHECK (fase IN ('configuracion', 'regular', 'playoffs', 'finalizado')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- TABLA: torneo_equipos
+-- Equipos participantes en un torneo
+-- =============================================
+CREATE TABLE torneo_equipos (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    torneo_id UUID NOT NULL REFERENCES torneos(id) ON DELETE CASCADE,
+    equipo_id UUID NOT NULL REFERENCES equipos(id) ON DELETE CASCADE,
+    UNIQUE(torneo_id, equipo_id)
+);
+
+-- =============================================
+-- TABLA: series_playoff
+-- Series al mejor de 3
+-- =============================================
+CREATE TABLE series_playoff (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    torneo_id UUID NOT NULL REFERENCES torneos(id) ON DELETE CASCADE,
+    ronda INTEGER NOT NULL DEFAULT 1,
+    numero_serie INTEGER NOT NULL,
+    equipo_superior_id UUID REFERENCES equipos(id),
+    equipo_inferior_id UUID REFERENCES equipos(id),
+    victorias_superior INTEGER DEFAULT 0,
+    victorias_inferior INTEGER DEFAULT 0,
+    ganador_id UUID REFERENCES equipos(id),
+    estado VARCHAR(20) DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'en_curso', 'finalizada')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
 -- TABLA: juegos
 -- Calendario y resultados de partidos
 -- =============================================
 CREATE TABLE juegos (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     temporada_id UUID REFERENCES temporadas(id) ON DELETE CASCADE,
+    torneo_id UUID REFERENCES torneos(id) ON DELETE SET NULL,
     equipo_local_id UUID NOT NULL REFERENCES equipos(id) ON DELETE RESTRICT,
     equipo_visitante_id UUID NOT NULL REFERENCES equipos(id) ON DELETE RESTRICT,
     fecha TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -83,6 +131,10 @@ CREATE TABLE juegos (
     q4_visitante INTEGER DEFAULT 0,
     ot_local INTEGER DEFAULT 0,
     ot_visitante INTEGER DEFAULT 0,
+    jornada INTEGER,
+    fase_juego VARCHAR(20) DEFAULT 'ida' CHECK (fase_juego IN ('ida', 'vuelta', 'playoff')),
+    serie_id UUID REFERENCES series_playoff(id) ON DELETE SET NULL,
+    numero_juego_serie INTEGER,
     notas TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -147,6 +199,8 @@ CREATE TABLE tabla_posiciones (
 CREATE INDEX idx_jugadores_equipo ON jugadores(equipo_id);
 CREATE INDEX idx_jugadores_activo ON jugadores(activo);
 CREATE INDEX idx_juegos_temporada ON juegos(temporada_id);
+CREATE INDEX idx_juegos_torneo ON juegos(torneo_id);
+CREATE INDEX idx_juegos_serie ON juegos(serie_id);
 CREATE INDEX idx_juegos_fecha ON juegos(fecha);
 CREATE INDEX idx_juegos_estado ON juegos(estado);
 CREATE INDEX idx_estadisticas_juego ON estadisticas_jugador(juego_id);
@@ -191,13 +245,18 @@ GROUP BY j.id, j.nombre, j.apellido, j.numero, j.posicion, e.id, e.nombre, e.nom
 
 -- Vista: Calendario con nombres de equipos
 CREATE OR REPLACE VIEW vista_calendario AS
-SELECT 
+SELECT
     g.id,
     g.fecha,
     g.lugar,
     g.estado,
     g.puntos_local,
     g.puntos_visitante,
+    g.torneo_id,
+    g.jornada,
+    g.fase_juego,
+    g.serie_id,
+    g.numero_juego_serie,
     el.id AS local_id,
     el.nombre AS local_nombre,
     el.nombre_corto AS local_corto,
@@ -294,6 +353,9 @@ ALTER TABLE jugadores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE juegos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE estadisticas_jugador ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tabla_posiciones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE torneos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE torneo_equipos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE series_playoff ENABLE ROW LEVEL SECURITY;
 
 -- Lectura pública
 CREATE POLICY "Lectura pública" ON temporadas FOR SELECT USING (true);
@@ -302,6 +364,9 @@ CREATE POLICY "Lectura pública" ON jugadores FOR SELECT USING (true);
 CREATE POLICY "Lectura pública" ON juegos FOR SELECT USING (true);
 CREATE POLICY "Lectura pública" ON estadisticas_jugador FOR SELECT USING (true);
 CREATE POLICY "Lectura pública" ON tabla_posiciones FOR SELECT USING (true);
+CREATE POLICY "Lectura pública" ON torneos FOR SELECT USING (true);
+CREATE POLICY "Lectura pública" ON torneo_equipos FOR SELECT USING (true);
+CREATE POLICY "Lectura pública" ON series_playoff FOR SELECT USING (true);
 
 -- Escritura solo autenticados
 CREATE POLICY "Admin escribe" ON temporadas FOR ALL USING (auth.role() = 'authenticated');
@@ -310,8 +375,7 @@ CREATE POLICY "Admin escribe" ON jugadores FOR ALL USING (auth.role() = 'authent
 CREATE POLICY "Admin escribe" ON juegos FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Admin escribe" ON estadisticas_jugador FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Admin escribe" ON tabla_posiciones FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin escribe" ON torneos FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin escribe" ON torneo_equipos FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin escribe" ON series_playoff FOR ALL USING (auth.role() = 'authenticated');
 
--- =============================================
--- DATOS DE EJEMPLO
--- =============================================
-INSERT INTO temporadas (nombre, fecha_inicio, activa) VALUES ('Temporada 2024', '2024-01-15', true);

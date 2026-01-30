@@ -21,6 +21,8 @@ import AdminEquiposPage from './pages/admin/AdminEquiposPage'
 import AdminJugadoresPage from './pages/admin/AdminJugadoresPage'
 import AdminCalendarioPage from './pages/admin/AdminCalendarioPage'
 import AdminJuegoPage from './pages/admin/AdminJuegoPage'
+import AdminTorneoPage from './pages/admin/AdminTorneoPage'
+import AdminTorneoDetailPage from './pages/admin/AdminTorneoDetailPage'
 
 // Auth
 import LoginPage from './pages/auth/LoginPage'
@@ -75,6 +77,8 @@ function App() {
         <Route path="equipos" element={<AdminEquiposPage />} />
         <Route path="jugadores" element={<AdminJugadoresPage />} />
         <Route path="calendario" element={<AdminCalendarioPage />} />
+        <Route path="torneos" element={<AdminTorneoPage />} />
+        <Route path="torneos/:id" element={<AdminTorneoDetailPage />} />
         <Route path="juegos/:id" element={<AdminJuegoPage />} />
       </Route>
 

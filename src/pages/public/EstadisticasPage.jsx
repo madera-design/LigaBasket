@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronUp, Trophy } from 'lucide-react'
 import { getLideresTotales } from '../../services/estadisticas.service'
+import { getTorneos, getTorneoActivo } from '../../services/torneos.service'
 import toast from 'react-hot-toast'
 
 const INITIAL_SHOW = 10
@@ -18,13 +19,43 @@ const CATEGORIAS = [
 
 export default function EstadisticasPage() {
   const [data, setData] = useState({})
+  const [torneos, setTorneos] = useState([])
+  const [selectedTorneoId, setSelectedTorneoId] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadingStats, setLoadingStats] = useState(false)
 
+  // Cargar torneos y seleccionar el activo
   useEffect(() => {
+    const init = async () => {
+      try {
+        const [torneosData, activo] = await Promise.all([
+          getTorneos(),
+          getTorneoActivo()
+        ])
+        setTorneos(torneosData)
+        if (activo) {
+          setSelectedTorneoId(activo.id)
+        } else if (torneosData.length > 0) {
+          setSelectedTorneoId(torneosData[0].id)
+        }
+      } catch (error) {
+        toast.error('Error al cargar torneos')
+        console.error(error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    init()
+  }, [])
+
+  // Cargar estadisticas cuando cambia el torneo
+  useEffect(() => {
+    if (!selectedTorneoId) return
     const fetchData = async () => {
+      setLoadingStats(true)
       try {
         const results = await Promise.all(
-          CATEGORIAS.map(cat => getLideresTotales(cat.key, EXPAND_SHOW))
+          CATEGORIAS.map(cat => getLideresTotales(cat.key, EXPAND_SHOW, selectedTorneoId))
         )
         const newData = {}
         CATEGORIAS.forEach((cat, i) => {
@@ -35,11 +66,11 @@ export default function EstadisticasPage() {
         toast.error('Error al cargar estadisticas')
         console.error(error)
       } finally {
-        setLoading(false)
+        setLoadingStats(false)
       }
     }
     fetchData()
-  }, [])
+  }, [selectedTorneoId])
 
   if (loading) {
     return (
@@ -52,9 +83,22 @@ export default function EstadisticasPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gray-800 rounded-2xl p-6">
-        <h1 className="font-display text-2xl text-white">Estadisticas del Torneo</h1>
-        <p className="text-gray-400 text-sm mt-1">Lideres y estadisticas generales por jugador</p>
+      <div className="bg-gray-800 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl text-white">Estadisticas del Torneo</h1>
+          <p className="text-gray-400 text-sm mt-1">Lideres y estadisticas generales por jugador</p>
+        </div>
+        {torneos.length > 0 && (
+          <select
+            value={selectedTorneoId || ''}
+            onChange={(e) => setSelectedTorneoId(e.target.value)}
+            className="bg-gray-700 text-white text-sm rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-primary-500"
+          >
+            {torneos.map(t => (
+              <option key={t.id} value={t.id}>{t.nombre}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Mejor Jugador - Proximamente */}
@@ -70,14 +114,18 @@ export default function EstadisticasPage() {
       </div>
 
       {/* Categorias de estadisticas */}
-      {CATEGORIAS.map(cat => (
-        <LeaderSection
-          key={cat.key}
-          label={cat.label}
-          columnLabel={cat.columnLabel}
-          jugadores={data[cat.key] || []}
-        />
-      ))}
+      {loadingStats ? (
+        <div className="flex justify-center py-12"><div className="spinner w-8 h-8"></div></div>
+      ) : (
+        CATEGORIAS.map(cat => (
+          <LeaderSection
+            key={cat.key}
+            label={cat.label}
+            columnLabel={cat.columnLabel}
+            jugadores={data[cat.key] || []}
+          />
+        ))
+      )}
     </div>
   )
 }

@@ -133,7 +133,7 @@ export default function EquipoDetailPage() {
             <div className="text-white">
               <h1 className="text-2xl sm:text-3xl font-display">{equipo.nombre}</h1>
               {equipo.nombre_corto && <p className="text-gray-400 text-sm">{equipo.nombre_corto}</p>}
-              {equipo.entrenador && <p className="text-gray-300 mt-1">DT: {equipo.entrenador}</p>}
+              {equipo.entrenador && <p className="text-gray-300 mt-1">Delegado: {equipo.entrenador}</p>}
             </div>
           </div>
         </div>
@@ -264,8 +264,25 @@ function GameCard({ juego, equipoId }) {
     return d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
   }
 
+  const faseLabel = juego.torneo_id
+    ? juego.fase_juego === 'playoff' ? 'Playoff' : juego.fase_juego === 'vuelta' ? 'Vuelta' : 'Temporada Regular'
+    : 'Amistoso'
+
   return (
     <div className="card overflow-hidden">
+      {/* Tipo de partido */}
+      <div className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+        <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${
+          juego.torneo_id
+            ? juego.fase_juego === 'playoff' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+            : 'bg-gray-200 text-gray-500'
+        }`}>
+          {faseLabel}
+        </span>
+        {juego.temporada_nombre && (
+          <span className="text-xs text-gray-400">{juego.temporada_nombre}</span>
+        )}
+      </div>
       <div className="p-6">
         <div className="grid grid-cols-3 items-center gap-4">
           {/* Local */}
@@ -339,6 +356,7 @@ function GameCard({ juego, equipoId }) {
         {juego.lugar && (
           <p className="text-center text-xs text-gray-400 mt-1">{juego.lugar}</p>
         )}
+
       </div>
     </div>
   )

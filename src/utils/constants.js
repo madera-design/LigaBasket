@@ -56,6 +56,25 @@ export const CHART_COLORS = [
   '#06b6d4', // cyan
 ]
 
+// Fases del torneo
+export const FASES_TORNEO = [
+  { value: 'configuracion', label: 'Configuracion', color: 'gray' },
+  { value: 'regular', label: 'Temporada Regular', color: 'blue' },
+  { value: 'playoffs', label: 'Playoffs', color: 'orange' },
+  { value: 'finalizado', label: 'Finalizado', color: 'green' },
+]
+
+// Dias de la semana (0=Dom, 1=Lun, ..., 6=Sab)
+export const DIAS_SEMANA = [
+  { value: 0, label: 'Domingo', abbr: 'Dom' },
+  { value: 1, label: 'Lunes', abbr: 'Lun' },
+  { value: 2, label: 'Martes', abbr: 'Mar' },
+  { value: 3, label: 'Miercoles', abbr: 'Mie' },
+  { value: 4, label: 'Jueves', abbr: 'Jue' },
+  { value: 5, label: 'Viernes', abbr: 'Vie' },
+  { value: 6, label: 'Sabado', abbr: 'Sab' },
+]
+
 // Límites y validaciones
 export const LIMITS = {
   MIN_PLAYERS_PER_TEAM: 5,

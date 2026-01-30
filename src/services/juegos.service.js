@@ -18,6 +18,14 @@ export const getJuegos = async (filters = {}) => {
     query = query.or(`local_id.eq.${filters.equipoId},visitante_id.eq.${filters.equipoId}`)
   }
 
+  if (filters.torneoId) {
+    query = query.eq('torneo_id', filters.torneoId)
+  }
+
+  if (filters.faseJuego) {
+    query = query.eq('fase_juego', filters.faseJuego)
+  }
+
   if (filters.estado) {
     query = query.eq('estado', filters.estado)
   }

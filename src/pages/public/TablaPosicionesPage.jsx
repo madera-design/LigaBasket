@@ -1,61 +1,95 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { calcularPosiciones } from '../../services/estadisticas.service'
-import { getEquipos } from '../../services/equipos.service'
+import { getTorneos, getTorneoActivo } from '../../services/torneos.service'
 import toast from 'react-hot-toast'
 
 export default function TablaPosicionesPage() {
   const [posiciones, setPosiciones] = useState([])
-  const [equiposSinJuegos, setEquiposSinJuegos] = useState([])
+  const [torneos, setTorneos] = useState([])
+  const [selectedTorneoId, setSelectedTorneoId] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadingTabla, setLoadingTabla] = useState(false)
 
+  // Cargar torneos y seleccionar el activo
   useEffect(() => {
-    const fetchData = async () => {
+    const init = async () => {
       try {
-        const [tabla, equipos] = await Promise.all([
-          calcularPosiciones(),
-          getEquipos()
+        const [torneosData, activo] = await Promise.all([
+          getTorneos(),
+          getTorneoActivo()
         ])
-        setPosiciones(tabla)
-
-        // Equipos que no tienen juegos finalizados
-        const idsConJuegos = new Set(tabla.map(e => e.equipo_id))
-        const sinJuegos = equipos
-          .filter(e => !idsConJuegos.has(e.id))
-          .map(e => ({
-            equipo_id: e.id,
-            equipo_nombre: e.nombre,
-            equipo_corto: e.nombre_corto,
-            equipo_logo: e.logo_url,
-            equipo_color: e.color_primario,
-            juegos: 0, ganados: 0, perdidos: 0,
-            puntos_favor: 0, puntos_contra: 0,
-            diferencia: 0, pts: 0, porcentaje: 0,
-            puntos_extras: 0,
-          }))
-        setEquiposSinJuegos(sinJuegos)
+        setTorneos(torneosData)
+        if (activo) {
+          setSelectedTorneoId(activo.id)
+        } else if (torneosData.length > 0) {
+          setSelectedTorneoId(torneosData[0].id)
+        }
       } catch (error) {
-        toast.error('Error al cargar posiciones')
+        toast.error('Error al cargar torneos')
         console.error(error)
       } finally {
         setLoading(false)
       }
     }
-    fetchData()
+    init()
   }, [])
+
+  // Cargar posiciones cuando cambia el torneo seleccionado
+  useEffect(() => {
+    if (!selectedTorneoId) return
+    const fetchPosiciones = async () => {
+      setLoadingTabla(true)
+      try {
+        const tabla = await calcularPosiciones(selectedTorneoId)
+        setPosiciones(tabla)
+      } catch (error) {
+        toast.error('Error al cargar posiciones')
+        console.error(error)
+      } finally {
+        setLoadingTabla(false)
+      }
+    }
+    fetchPosiciones()
+  }, [selectedTorneoId])
 
   if (loading) {
     return <div className="flex justify-center py-12"><div className="spinner w-8 h-8"></div></div>
   }
 
-  const allEquipos = [...posiciones, ...equiposSinJuegos]
+  if (torneos.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="page-header">
+          <h1 className="page-title">Tabla de Posiciones</h1>
+        </div>
+        <div className="card p-8 text-center text-gray-500">No hay torneos disponibles</div>
+      </div>
+    )
+  }
+
+  const allEquipos = posiciones
 
   return (
     <div className="space-y-6">
-      <div className="page-header">
-        <h1 className="page-title">Tabla de Posiciones</h1>
+      <div className="bg-gray-800 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <h1 className="font-display text-2xl text-white">Tabla de Posiciones</h1>
+        <select
+          value={selectedTorneoId || ''}
+          onChange={(e) => setSelectedTorneoId(e.target.value)}
+          className="bg-gray-700 text-white text-sm rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-primary-500"
+        >
+          {torneos.map(t => (
+            <option key={t.id} value={t.id}>{t.nombre}</option>
+          ))}
+        </select>
       </div>
 
+      {loadingTabla ? (
+        <div className="flex justify-center py-12"><div className="spinner w-8 h-8"></div></div>
+      ) : allEquipos.length === 0 ? (
+        <div className="card p-8 text-center text-gray-500">No hay juegos finalizados en este torneo</div>
+      ) : (
       <div className="card overflow-hidden">
         <div className="bg-gray-800 text-white text-center py-3 font-display text-lg tracking-wider">
           CLASIFICACION
@@ -136,6 +170,7 @@ export default function TablaPosicionesPage() {
           </table>
         </div>
       </div>
+      )}
 
       {/* Leyenda */}
       <div className="card p-6">

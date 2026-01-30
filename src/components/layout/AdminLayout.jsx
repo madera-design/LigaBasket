@@ -4,6 +4,7 @@ import {
   Users,
   UserPlus,
   CalendarPlus,
+  Trophy,
   LogOut,
   Home,
   Menu,
@@ -20,6 +21,7 @@ const adminLinks = [
   { path: '/admin/equipos', label: 'Equipos', icon: Users },
   { path: '/admin/jugadores', label: 'Jugadores', icon: UserPlus },
   { path: '/admin/calendario', label: 'Calendario', icon: CalendarPlus },
+  { path: '/admin/torneos', label: 'Torneos', icon: Trophy },
 ]
 
 export default function AdminLayout() {

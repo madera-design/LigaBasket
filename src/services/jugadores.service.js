@@ -24,11 +24,12 @@ export const getJugadores = async (filters = {}) => {
     query = query.eq('equipo_id', filters.equipoId)
   }
 
-  if (filters.activo !== undefined) {
+  if (filters.activo === true || filters.activo === false) {
     query = query.eq('activo', filters.activo)
-  } else {
+  } else if (!('activo' in filters)) {
     query = query.eq('activo', true)
   }
+  // Si activo está en filters pero es undefined/null, no filtra (trae todos)
 
   if (filters.posicion) {
     query = query.eq('posicion', filters.posicion)

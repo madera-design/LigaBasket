@@ -116,6 +116,42 @@ export default function AdminJugadoresPage() {
       return
     }
 
+    // Validar nombre y apellido duplicado en el mismo equipo
+    if (formData.equipo_id) {
+      const duplicado = jugadores.find(
+        j => j.equipo_id === formData.equipo_id
+          && j.nombre.toLowerCase() === formData.nombre.trim().toLowerCase()
+          && j.apellido.toLowerCase() === formData.apellido.trim().toLowerCase()
+          && (!editingJugador || j.id !== editingJugador.id)
+      )
+      if (duplicado) {
+        toast.error(`Ya existe un jugador llamado "${formData.nombre.trim()} ${formData.apellido.trim()}" en este equipo`)
+        return
+      }
+    }
+
+    // Validar maximo 12 jugadores activos por equipo al crear
+    if (!editingJugador && formData.equipo_id) {
+      const activosDelEquipo = jugadores.filter(
+        j => j.equipo_id === formData.equipo_id && j.activo
+      )
+      if (activosDelEquipo.length >= 12) {
+        toast.error('El equipo ya tiene 12 jugadores activos (maximo permitido)')
+        return
+      }
+    }
+
+    // Validar al editar si se cambia de equipo
+    if (editingJugador && formData.equipo_id && formData.equipo_id !== editingJugador.equipo_id) {
+      const activosDelEquipo = jugadores.filter(
+        j => j.equipo_id === formData.equipo_id && j.activo && j.id !== editingJugador.id
+      )
+      if (activosDelEquipo.length >= 12) {
+        toast.error('El equipo destino ya tiene 12 jugadores activos (maximo permitido)')
+        return
+      }
+    }
+
     setSaving(true)
     try {
       const { altura, peso, ...rest } = formData
@@ -149,7 +185,11 @@ export default function AdminJugadoresPage() {
       handleCloseModal()
       fetchData()
     } catch (error) {
-      toast.error(error.message || 'Error al guardar')
+      if (error.code === '23505') {
+        toast.error('El numero de jugador ya esta en uso en este equipo')
+      } else {
+        toast.error(error.message || 'Error al guardar')
+      }
     } finally {
       setSaving(false)
     }
@@ -168,6 +208,17 @@ export default function AdminJugadoresPage() {
   }
 
   const handleToggleStatus = async (jugador) => {
+    // Si se va a activar, validar maximo 12 activos por equipo
+    if (!jugador.activo && jugador.equipo_id) {
+      const activosDelEquipo = jugadores.filter(
+        j => j.equipo_id === jugador.equipo_id && j.activo && j.id !== jugador.id
+      )
+      if (activosDelEquipo.length >= 12) {
+        toast.error('El equipo ya tiene 12 jugadores activos (maximo permitido)')
+        return
+      }
+    }
+
     try {
       await updateJugador(jugador.id, { activo: !jugador.activo })
       toast.success(jugador.activo ? 'Jugador dado de baja' : 'Jugador activado')
@@ -245,10 +296,9 @@ export default function AdminJugadoresPage() {
                   <td><span className={jugador.activo ? 'badge-success' : 'badge-gray'}>{jugador.activo ? 'Activo' : 'Inactivo'}</span></td>
                   <td>
                     <div className="flex justify-end gap-2">
-                      
-                      {/*<button onClick={() => handleToggleStatus(jugador)} className={`btn-ghost btn-sm ${jugador.activo ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'}`} title={jugador.activo ? 'Dar de baja' : 'Activar'}>
+                      <button onClick={() => handleToggleStatus(jugador)} className={`btn-ghost btn-sm ${jugador.activo ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'}`} title={jugador.activo ? 'Dar de baja' : 'Activar'}>
                         <Power size={16} />
-                      </button>*/}
+                      </button>
                       <button onClick={() => handleOpenModal(jugador)} className="btn-ghost btn-sm"><Pencil size={16} /></button>
                       <button onClick={() => setConfirmDelete(jugador)} className="btn-ghost btn-sm text-red-500 hover:bg-red-50"><Trash2 size={16} /></button>
                     </div>

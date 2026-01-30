@@ -3,6 +3,7 @@ import { Calendar, Users, Trophy, ArrowRight, TrendingUp } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { getProximosJuegos, getUltimosResultados } from '../../services/juegos.service'
 import { calcularPosiciones, getLideres } from '../../services/estadisticas.service'
+import { getTorneoActivo } from '../../services/torneos.service'
 import { formatDate, formatTime } from '../../utils/formatters'
 
 export default function HomePage() {
@@ -15,11 +16,15 @@ export default function HomePage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // Obtener torneo activo para filtrar posiciones y lideres
+        const torneoActivo = await getTorneoActivo()
+        const torneoId = torneoActivo?.id || null
+
         const [juegos, resultados, tabla, lideresData] = await Promise.all([
           getProximosJuegos(3),
           getUltimosResultados(3),
-          calcularPosiciones(),
-          getLideres('ppj', 5),
+          torneoId ? calcularPosiciones(torneoId) : Promise.resolve([]),
+          torneoId ? getLideres('ppj', 5, torneoId) : Promise.resolve([]),
         ])
         setProximosJuegos(juegos)
         setUltimosResultados(resultados)
@@ -86,24 +91,40 @@ export default function HomePage() {
                 <Link
                   key={juego.id}
                   to={`/juegos/${juego.id}`}
-                  className="card-hover p-4 flex items-center gap-4"
+                  className="card-hover overflow-hidden flex flex-col"
                 >
-                  <div className="text-center min-w-[60px]">
-                    <p className="text-xs text-gray-500">{formatDate(juego.fecha, 'EEE')}</p>
-                    <p className="font-bold">{formatDate(juego.fecha, 'dd/MM')}</p>
-                    <p className="text-sm text-gray-500">{formatTime(juego.fecha)}</p>
+                  <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                      juego.torneo_id
+                        ? juego.fase_juego === 'playoff' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-200 text-gray-500'
+                    }`}>
+                      {juego.torneo_id
+                        ? juego.fase_juego === 'playoff' ? 'Playoff' : 'Temporada Regular'
+                        : 'Amistoso'}
+                    </span>
+                    {juego.temporada_nombre && (
+                      <span className="text-[10px] text-gray-400">{juego.temporada_nombre}</span>
+                    )}
                   </div>
-                  <div className="flex-1 grid grid-cols-3 items-center gap-2">
-                    <div className="flex flex-col items-end gap-1">
-                      <TeamAvatar logo={juego.local_logo} color={juego.local_color} name={juego.local_corto || juego.local_nombre} size="sm" />
-                      <p className="font-semibold text-sm">{juego.local_nombre}</p>
+                  <div className="p-4 flex items-center gap-4">
+                    <div className="text-center min-w-[60px]">
+                      <p className="text-xs text-gray-500">{formatDate(juego.fecha, 'EEE')}</p>
+                      <p className="font-bold">{formatDate(juego.fecha, 'dd/MM')}</p>
+                      <p className="text-sm text-gray-500">{formatTime(juego.fecha)}</p>
                     </div>
-                    <div className="text-center">
-                      <span className="badge-gray">VS</span>
-                    </div>
-                    <div className="flex flex-col items-start gap-1">
-                      <TeamAvatar logo={juego.visitante_logo} color={juego.visitante_color} name={juego.visitante_corto || juego.visitante_nombre} size="sm" />
-                      <p className="font-semibold text-sm">{juego.visitante_nombre}</p>
+                    <div className="flex-1 grid grid-cols-3 items-center gap-2">
+                      <div className="flex flex-col items-end gap-1">
+                        <TeamAvatar logo={juego.local_logo} color={juego.local_color} name={juego.local_corto || juego.local_nombre} size="sm" />
+                        <p className="font-semibold text-sm">{juego.local_nombre}</p>
+                      </div>
+                      <div className="text-center">
+                        <span className="badge-gray">VS</span>
+                      </div>
+                      <div className="flex flex-col items-start gap-1">
+                        <TeamAvatar logo={juego.visitante_logo} color={juego.visitante_color} name={juego.visitante_corto || juego.visitante_nombre} size="sm" />
+                        <p className="font-semibold text-sm">{juego.visitante_nombre}</p>
+                      </div>
                     </div>
                   </div>
                 </Link>
@@ -126,29 +147,45 @@ export default function HomePage() {
                 <Link
                   key={juego.id}
                   to={`/juegos/${juego.id}`}
-                  className="card-hover p-4 flex items-center gap-4"
+                  className="card-hover overflow-hidden flex flex-col"
                 >
-                  <div className="text-center min-w-[60px]">
-                    <p className="text-xs text-gray-500">{formatDate(juego.fecha, 'dd/MM')}</p>
-                    <span className="badge-success text-xs">Final</span>
+                  <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                      juego.torneo_id
+                        ? juego.fase_juego === 'playoff' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-200 text-gray-500'
+                    }`}>
+                      {juego.torneo_id
+                        ? juego.fase_juego === 'playoff' ? 'Playoff' : 'Temporada Regular'
+                        : 'Amistoso'}
+                    </span>
+                    {juego.temporada_nombre && (
+                      <span className="text-[10px] text-gray-400">{juego.temporada_nombre}</span>
+                    )}
                   </div>
-                  <div className="flex-1 grid grid-cols-3 items-center gap-2">
-                    <div className="flex flex-col items-end gap-1">
-                      <TeamAvatar logo={juego.local_logo} color={juego.local_color} name={juego.local_corto || juego.local_nombre} size="sm" />
-                      <p className={`font-semibold text-sm ${juego.puntos_local > juego.puntos_visitante ? 'text-green-600' : ''}`}>
-                        {juego.local_nombre}
-                      </p>
+                  <div className="p-4 flex items-center gap-4">
+                    <div className="text-center min-w-[60px]">
+                      <p className="text-xs text-gray-500">{formatDate(juego.fecha, 'dd/MM')}</p>
+                      <span className="badge-success text-xs">Final</span>
                     </div>
-                    <div className="text-center">
-                      <span className="font-display text-2xl">
-                        {juego.puntos_local} - {juego.puntos_visitante}
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-start gap-1">
-                      <TeamAvatar logo={juego.visitante_logo} color={juego.visitante_color} name={juego.visitante_corto || juego.visitante_nombre} size="sm" />
-                      <p className={`font-semibold text-sm ${juego.puntos_visitante > juego.puntos_local ? 'text-green-600' : ''}`}>
-                        {juego.visitante_nombre}
-                      </p>
+                    <div className="flex-1 grid grid-cols-3 items-center gap-2">
+                      <div className="flex flex-col items-end gap-1">
+                        <TeamAvatar logo={juego.local_logo} color={juego.local_color} name={juego.local_corto || juego.local_nombre} size="sm" />
+                        <p className={`font-semibold text-sm ${juego.puntos_local > juego.puntos_visitante ? 'text-green-600' : ''}`}>
+                          {juego.local_nombre}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <span className="font-display text-2xl">
+                          {juego.puntos_local} - {juego.puntos_visitante}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-start gap-1">
+                        <TeamAvatar logo={juego.visitante_logo} color={juego.visitante_color} name={juego.visitante_corto || juego.visitante_nombre} size="sm" />
+                        <p className={`font-semibold text-sm ${juego.puntos_visitante > juego.puntos_local ? 'text-green-600' : ''}`}>
+                          {juego.visitante_nombre}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </Link>

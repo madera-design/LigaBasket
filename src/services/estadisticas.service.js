@@ -109,9 +109,74 @@ export const deleteEstadisticasJuego = async (juegoId) => {
 }
 
 /**
- * Obtiene líderes estadísticos
+ * Obtiene líderes estadísticos (filtrado por torneo)
  */
-export const getLideres = async (categoria = 'ppj', limit = 10) => {
+export const getLideres = async (categoria = 'ppj', limit = 10, torneoId = null) => {
+  // Si hay filtro de torneo, calcular desde estadisticas_jugador + juegos
+  if (torneoId) {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select(`
+        *,
+        jugador:jugadores!inner (
+          id, nombre, apellido, numero, posicion,
+          equipo:equipos (id, nombre, nombre_corto)
+        ),
+        juego:juegos!inner (torneo_id)
+      `)
+      .eq('juego.torneo_id', torneoId)
+
+    if (error) throw error
+
+    // Agrupar por jugador y calcular promedios
+    const jugadorMap = {}
+    data.forEach(s => {
+      const jid = s.jugador_id
+      if (!jugadorMap[jid]) {
+        jugadorMap[jid] = {
+          jugador_id: jid,
+          nombre: s.jugador?.nombre || '',
+          apellido: s.jugador?.apellido || '',
+          numero: s.jugador?.numero || 0,
+          equipo_id: s.jugador?.equipo?.id || null,
+          equipo_nombre: s.jugador?.equipo?.nombre || '',
+          equipo_corto: s.jugador?.equipo?.nombre_corto || '',
+          juegos_jugados: 0,
+          puntos_totales: 0,
+          asistencias_total: 0,
+          rebotes_total: 0,
+          robos_total: 0,
+          bloqueos_total: 0,
+          triples_total: 0,
+        }
+      }
+      const p = jugadorMap[jid]
+      p.juegos_jugados++
+      p.puntos_totales += s.puntos || 0
+      p.asistencias_total += s.asistencias || 0
+      p.rebotes_total += (s.rebotes_ofensivos || 0) + (s.rebotes_defensivos || 0)
+      p.robos_total += s.robos || 0
+      p.bloqueos_total += s.bloqueos || 0
+      p.triples_total += s.triples_convertidos || 0
+    })
+
+    // Calcular promedios
+    const result = Object.values(jugadorMap)
+      .filter(p => p.juegos_jugados > 0)
+      .map(p => ({
+        ...p,
+        ppj: parseFloat((p.puntos_totales / p.juegos_jugados).toFixed(1)),
+        apj: parseFloat((p.asistencias_total / p.juegos_jugados).toFixed(1)),
+        rpj: parseFloat((p.rebotes_total / p.juegos_jugados).toFixed(1)),
+        robos_pj: parseFloat((p.robos_total / p.juegos_jugados).toFixed(1)),
+        bloqueos_pj: parseFloat((p.bloqueos_total / p.juegos_jugados).toFixed(1)),
+      }))
+
+    result.sort((a, b) => (b[categoria] || 0) - (a[categoria] || 0))
+    return result.slice(0, limit)
+  }
+
+  // Sin filtro de torneo: usar vista (comportamiento original)
   const { data, error } = await supabase
     .from('vista_estadisticas_jugador')
     .select('*')
@@ -124,9 +189,14 @@ export const getLideres = async (categoria = 'ppj', limit = 10) => {
 }
 
 /**
- * Obtiene todos los promedios de jugadores
+ * Obtiene todos los promedios de jugadores (filtrado por torneo)
  */
-export const getAllPromedios = async () => {
+export const getAllPromedios = async (torneoId = null) => {
+  if (torneoId) {
+    // Usar getLideres con un limit alto para obtener todos
+    return getLideres('ppj', 999, torneoId)
+  }
+
   const { data, error } = await supabase
     .from('vista_estadisticas_jugador')
     .select('*')
@@ -158,11 +228,19 @@ export const getTablaPosiciones = async (temporadaId = null) => {
  * Calcula tabla de posiciones desde juegos finalizados
  * Pts: G*2 + P*1, ordenado por Pts desc, DP desc
  */
-export const calcularPosiciones = async () => {
-  const { data: juegos, error } = await supabase
+export const calcularPosiciones = async (torneoId = null) => {
+  let query = supabase
     .from('vista_calendario')
     .select('*')
     .eq('estado', 'finalizado')
+
+  if (torneoId) {
+    query = query.eq('torneo_id', torneoId)
+  } else {
+    query = query.not('torneo_id', 'is', null)
+  }
+
+  const { data: juegos, error } = await query
 
   if (error) throw error
 
@@ -324,8 +402,8 @@ export const getHeadToHead = async (equipo1Id, equipo2Id) => {
 /**
  * Obtiene líderes por totales acumulados de una categoría
  */
-export const getLideresTotales = async (categoria = 'puntos', limit = 10) => {
-  const { data, error } = await supabase
+export const getLideresTotales = async (categoria = 'puntos', limit = 10, torneoId = null) => {
+  let query = supabase
     .from(TABLE)
     .select(`
       jugador_id,
@@ -341,8 +419,17 @@ export const getLideresTotales = async (categoria = 'puntos', limit = 10) => {
         equipo:equipos (
           id, nombre, nombre_corto
         )
-      )
+      ),
+      juego:juegos!inner (torneo_id)
     `)
+
+  if (torneoId) {
+    query = query.eq('juego.torneo_id', torneoId)
+  } else {
+    query = query.not('juego.torneo_id', 'is', null)
+  }
+
+  const { data, error } = await query
 
   if (error) throw error
 

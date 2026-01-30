@@ -139,6 +139,19 @@ export default function AdminCalendarioPage() {
                 {/* Top bar: fecha, estado, lugar, acciones */}
                 <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-3 text-sm">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                      juego.torneo_id
+                        ? juego.fase_juego === 'playoff' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {juego.torneo_id
+                        ? juego.fase_juego === 'playoff' ? 'Playoff' : juego.fase_juego === 'vuelta' ? 'Vuelta' : 'Ida'
+                        : 'Amistoso'}
+                    </span>
+                    {juego.temporada_nombre && (
+                      <span className="text-xs text-gray-400">{juego.temporada_nombre}</span>
+                    )}
+                    <span className="text-gray-400">|</span>
                     <span className="text-gray-600 font-medium">{formatDate(juego.fecha, 'EEE dd MMM')}</span>
                     <span className="text-gray-400">|</span>
                     <span className="font-bold text-gray-800">{formatTime(juego.fecha)}</span>

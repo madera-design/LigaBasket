@@ -70,6 +70,21 @@ export default function JuegoDetailPage() {
 
       {/* Scoreboard */}
       <div className="card overflow-hidden">
+        {/* Tipo de partido */}
+        <div className="px-6 py-2 bg-gray-900 flex items-center justify-between">
+          <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${
+            juego.torneo_id
+              ? juego.fase_juego === 'playoff' ? 'bg-orange-500/20 text-orange-300' : 'bg-blue-500/20 text-blue-300'
+              : 'bg-gray-700 text-gray-400'
+          }`}>
+            {juego.torneo_id
+              ? juego.fase_juego === 'playoff' ? 'Playoff' : juego.fase_juego === 'vuelta' ? 'Vuelta' : 'Temporada Regular'
+              : 'Amistoso'}
+          </span>
+          {juego.temporada_nombre && (
+            <span className="text-xs text-gray-500">{juego.temporada_nombre}</span>
+          )}
+        </div>
         <div className="bg-gray-800 p-6 sm:p-8">
           <div className="grid grid-cols-3 items-center gap-4">
             {/* Local */}
