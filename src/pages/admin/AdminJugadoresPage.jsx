@@ -263,9 +263,9 @@ export default function AdminJugadoresPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="table-container">
+        <div className="table-container max-h-[70vh] overflow-y-auto">
           <table className="table">
-            <thead>
+            <thead className="sticky top-0 bg-white z-10">
               <tr>
                 <th className="w-18">#</th>
                 <th>Jugador</th>

@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase'
+import { notifyGameFinalized, notifyGameCancelled, notifyGameSuspended } from './notificaciones.service'
 
 const TABLE = 'juegos'
 
@@ -30,6 +31,10 @@ export const getJuegos = async (filters = {}) => {
     query = query.eq('estado', filters.estado)
   }
 
+  if (filters.jornada) {
+    query = query.eq('jornada', filters.jornada)
+  }
+
   if (filters.fechaInicio) {
     query = query.gte('fecha', filters.fechaInicio)
   }
@@ -57,8 +62,7 @@ export const getProximosJuegos = async (limit = 5) => {
   const { data, error } = await supabase
     .from('vista_calendario')
     .select('*')
-    .eq('estado', 'programado')
-    .gte('fecha', new Date().toISOString())
+    .in('estado', ['programado', 'en_juego'])
     .order('fecha', { ascending: true })
     .limit(limit)
 
@@ -175,11 +179,13 @@ export const updateMarcador = async (id, puntosLocal, puntosVisitante, marcadorC
  * Finaliza un juego
  */
 export const finalizarJuego = async (id, puntosLocal, puntosVisitante) => {
-  return updateJuego(id, {
+  const result = await updateJuego(id, {
     estado: 'finalizado',
     puntos_local: puntosLocal,
     puntos_visitante: puntosVisitante,
   })
+  notifyGameFinalized(id).catch(err => console.error('Error notificacion finalizado:', err))
+  return result
 }
 
 /**
@@ -188,7 +194,9 @@ export const finalizarJuego = async (id, puntosLocal, puntosVisitante) => {
 export const cancelarJuego = async (id, notas = null) => {
   const updates = { estado: 'cancelado' }
   if (notas) updates.notas = notas
-  return updateJuego(id, updates)
+  const result = await updateJuego(id, updates)
+  notifyGameCancelled(id).catch(err => console.error('Error notificacion cancelado:', err))
+  return result
 }
 
 /**
@@ -197,7 +205,9 @@ export const cancelarJuego = async (id, notas = null) => {
 export const suspenderJuego = async (id, notas = null) => {
   const updates = { estado: 'suspendido' }
   if (notas) updates.notas = notas
-  return updateJuego(id, updates)
+  const result = await updateJuego(id, updates)
+  notifyGameSuspended(id).catch(err => console.error('Error notificacion suspendido:', err))
+  return result
 }
 
 /**

@@ -104,7 +104,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-1 gap-8">
         {/* Próximos juegos */}
         <div className="card">
           <div className="p-4 border-b border-gray-100 flex justify-between items-center">
@@ -145,7 +145,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Acciones rápidas */}
+        {/* Acciones rápidas 
         <div className="card p-6">
           <h2 className="font-bold text-gray-900 mb-4">Acciones Rápidas</h2>
           <div className="grid grid-cols-2 gap-4">
@@ -178,7 +178,7 @@ export default function DashboardPage() {
               <p className="font-medium">Ver Estadísticas</p>
             </Link>
           </div>
-        </div>
+        </div>*/}
       </div>
     </div>
   )

@@ -23,6 +23,7 @@ import AdminCalendarioPage from './pages/admin/AdminCalendarioPage'
 import AdminJuegoPage from './pages/admin/AdminJuegoPage'
 import AdminTorneoPage from './pages/admin/AdminTorneoPage'
 import AdminTorneoDetailPage from './pages/admin/AdminTorneoDetailPage'
+import AdminNotificationsPage from './pages/admin/AdminNotificationsPage'
 
 // Auth
 import LoginPage from './pages/auth/LoginPage'
@@ -80,6 +81,7 @@ function App() {
         <Route path="torneos" element={<AdminTorneoPage />} />
         <Route path="torneos/:id" element={<AdminTorneoDetailPage />} />
         <Route path="juegos/:id" element={<AdminJuegoPage />} />
+        <Route path="notificaciones" element={<AdminNotificationsPage />} />
       </Route>
 
       {/* 404 */}

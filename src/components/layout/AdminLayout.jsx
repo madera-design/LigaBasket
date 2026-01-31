@@ -10,7 +10,8 @@ import {
   Menu,
   X,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Mail
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -22,6 +23,7 @@ const adminLinks = [
   { path: '/admin/jugadores', label: 'Jugadores', icon: UserPlus },
   { path: '/admin/calendario', label: 'Calendario', icon: CalendarPlus },
   { path: '/admin/torneos', label: 'Torneos', icon: Trophy },
+  /*{ path: '/admin/notificaciones', label: 'Notificaciones', icon: Mail },*/
 ]
 
 export default function AdminLayout() {

@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Search, X, Upload, Image, Power, Users } from 'lu
 import { getEquipos, createEquipo, updateEquipo, deleteEquipo, uploadEquipoLogo } from '../../services/equipos.service'
 import { getJugadoresByEquipo } from '../../services/jugadores.service'
 import { formatFullName } from '../../utils/formatters'
+import { isValidEmail } from '../../utils/validators'
 import ConfirmModal from '../../components/ConfirmModal'
 import toast from 'react-hot-toast'
 
@@ -18,6 +19,8 @@ export default function AdminEquiposPage() {
     color_primario: '#f97316',
     color_secundario: '#ffffff',
     entrenador: '',
+    delegate_name: '',
+    delegate_email: '',
   })
   const [logoFile, setLogoFile] = useState(null)
   const [logoPreview, setLogoPreview] = useState(null)
@@ -52,6 +55,8 @@ export default function AdminEquiposPage() {
         color_primario: equipo.color_primario || '#f97316',
         color_secundario: equipo.color_secundario || '#ffffff',
         entrenador: equipo.entrenador || '',
+        delegate_name: equipo.delegate_name || '',
+        delegate_email: equipo.delegate_email || '',
       })
       setLogoPreview(equipo.logo_url || null)
     } else {
@@ -62,6 +67,8 @@ export default function AdminEquiposPage() {
         color_primario: '#f97316',
         color_secundario: '#ffffff',
         entrenador: '',
+        delegate_name: '',
+        delegate_email: '',
       })
       setLogoPreview(null)
     }
@@ -105,6 +112,10 @@ export default function AdminEquiposPage() {
     e.preventDefault()
     if (!formData.nombre.trim()) {
       toast.error('El nombre es requerido')
+      return
+    }
+    if (formData.delegate_email && !isValidEmail(formData.delegate_email)) {
+      toast.error('El correo del delegado no es valido')
       return
     }
 
@@ -217,13 +228,14 @@ export default function AdminEquiposPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="table-container">
+        <div className="table-container max-h-[70vh] overflow-y-auto">
           <table className="table">
-            <thead>
+            <thead className="sticky top-0 bg-white z-10">
               <tr>
                 <th>Equipo</th>
                 <th>Abreviatura</th>
                 <th className="w-15">Delegado</th>
+                <th>Email Delegado</th>
                 <th className="w-18">Estado</th>
                 <th className="w-40 text-center">Acciones</th>
               </tr>
@@ -248,6 +260,7 @@ export default function AdminEquiposPage() {
                   </td>
                   <td>{equipo.nombre_corto || '-'}</td>
                   <td>{equipo.entrenador || '-'}</td>
+                  <td className="text-sm text-gray-500">{equipo.delegate_email || '-'}</td>
                   <td>
                     <span className={equipo.activo ? 'badge-success' : 'badge-gray'}>
                       {equipo.activo ? 'Activo' : 'Inactivo'}
@@ -375,6 +388,19 @@ export default function AdminEquiposPage() {
                 <div>
                   <label className="label">Delegado</label>
                   <input type="text" value={formData.entrenador} onChange={(e) => setFormData({ ...formData, entrenador: e.target.value })} className="input" placeholder="Nombre del Delegado" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Nombre del Delegado (notificaciones)</label>
+                    <input type="text" value={formData.delegate_name} onChange={(e) => setFormData({ ...formData, delegate_name: e.target.value })} className="input" placeholder="Ej: Carlos Rodriguez" />
+                  </div>
+                  <div>
+                    <label className="label">Email del Delegado</label>
+                    <input type="email" value={formData.delegate_email} onChange={(e) => setFormData({ ...formData, delegate_email: e.target.value })} className="input" placeholder="Ej: carlos@equipo.com" />
+                    {formData.delegate_email && !isValidEmail(formData.delegate_email) && (
+                      <p className="text-xs text-red-500 mt-1">Email no valido</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Logo */}
