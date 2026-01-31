@@ -7,7 +7,6 @@ import { getTorneos } from '../../services/torneos.service'
 import { ESTADOS_JUEGO } from '../../utils/constants'
 import { formatDate, formatTime } from '../../utils/formatters'
 import ConfirmModal from '../../components/ConfirmModal'
-import { notifyGameCreated, notifyGameRescheduled } from '../../services/notificaciones.service'
 import toast from 'react-hot-toast'
 
 export default function AdminCalendarioPage() {
@@ -102,11 +101,11 @@ export default function AdminCalendarioPage() {
 
     setSaving(true)
     try {
-      const fechaHora = formData.hora
-        ? `${formData.fecha}T${formData.hora}:00`
-        : `${formData.fecha}T18:00:00`
+      const hora = formData.hora || '18:00'
+      const localDate = new Date(`${formData.fecha}T${hora}:00`)
+      const fechaHora = localDate.toISOString()
 
-      const nuevoJuego = await createJuego({
+      await createJuego({
         equipo_local_id: formData.equipo_local_id,
         equipo_visitante_id: formData.equipo_visitante_id,
         fecha: fechaHora,
@@ -114,7 +113,6 @@ export default function AdminCalendarioPage() {
         estado: 'programado',
       })
       toast.success('Juego programado')
-      notifyGameCreated(nuevoJuego.id).catch(err => console.error('Error notificacion:', err))
       setShowModal(false)
       setFormData({ equipo_local_id: '', equipo_visitante_id: '', fecha: '', hora: '', lugar: '' })
       fetchJuegos()
@@ -139,8 +137,11 @@ export default function AdminCalendarioPage() {
 
   const openReschedule = (juego) => {
     const fechaObj = new Date(juego.fecha)
-    const fecha = fechaObj.toISOString().split('T')[0]
-    const hora = fechaObj.toTimeString().slice(0, 5)
+    const yyyy = fechaObj.getFullYear()
+    const mm = String(fechaObj.getMonth() + 1).padStart(2, '0')
+    const dd = String(fechaObj.getDate()).padStart(2, '0')
+    const fecha = `${yyyy}-${mm}-${dd}`
+    const hora = `${String(fechaObj.getHours()).padStart(2, '0')}:${String(fechaObj.getMinutes()).padStart(2, '0')}`
     setRescheduleData({ fecha, hora, lugar: juego.lugar || '' })
     setRescheduleJuego(juego)
   }
@@ -153,16 +154,15 @@ export default function AdminCalendarioPage() {
     }
     setSaving(true)
     try {
-      const fechaHora = rescheduleData.hora
-        ? `${rescheduleData.fecha}T${rescheduleData.hora}:00`
-        : `${rescheduleData.fecha}T18:00:00`
+      const horaR = rescheduleData.hora || '18:00'
+      const localDate = new Date(`${rescheduleData.fecha}T${horaR}:00`)
+      const fechaHora = localDate.toISOString()
 
       await updateJuego(rescheduleJuego.id, {
         fecha: fechaHora,
         lugar: rescheduleData.lugar || null,
       })
       toast.success('Juego reprogramado')
-      notifyGameRescheduled(rescheduleJuego.id).catch(err => console.error('Error notificacion:', err))
       setRescheduleJuego(null)
       fetchJuegos()
     } catch (error) {

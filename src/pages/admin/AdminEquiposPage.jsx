@@ -19,7 +19,6 @@ export default function AdminEquiposPage() {
     color_primario: '#f97316',
     color_secundario: '#ffffff',
     entrenador: '',
-    delegate_name: '',
     delegate_email: '',
   })
   const [logoFile, setLogoFile] = useState(null)
@@ -55,7 +54,6 @@ export default function AdminEquiposPage() {
         color_primario: equipo.color_primario || '#f97316',
         color_secundario: equipo.color_secundario || '#ffffff',
         entrenador: equipo.entrenador || '',
-        delegate_name: equipo.delegate_name || '',
         delegate_email: equipo.delegate_email || '',
       })
       setLogoPreview(equipo.logo_url || null)
@@ -389,18 +387,12 @@ export default function AdminEquiposPage() {
                   <label className="label">Delegado</label>
                   <input type="text" value={formData.entrenador} onChange={(e) => setFormData({ ...formData, entrenador: e.target.value })} className="input" placeholder="Nombre del Delegado" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Nombre del Delegado (notificaciones)</label>
-                    <input type="text" value={formData.delegate_name} onChange={(e) => setFormData({ ...formData, delegate_name: e.target.value })} className="input" placeholder="Ej: Carlos Rodriguez" />
-                  </div>
-                  <div>
-                    <label className="label">Email del Delegado</label>
-                    <input type="email" value={formData.delegate_email} onChange={(e) => setFormData({ ...formData, delegate_email: e.target.value })} className="input" placeholder="Ej: carlos@equipo.com" />
-                    {formData.delegate_email && !isValidEmail(formData.delegate_email) && (
-                      <p className="text-xs text-red-500 mt-1">Email no valido</p>
-                    )}
-                  </div>
+                <div>
+                  <label className="label">Email del Delegado</label>
+                  <input type="email" value={formData.delegate_email} onChange={(e) => setFormData({ ...formData, delegate_email: e.target.value })} className="input" placeholder="Ej: carlos@equipo.com" />
+                  {formData.delegate_email && !isValidEmail(formData.delegate_email) && (
+                    <p className="text-xs text-red-500 mt-1">Email no valido</p>
+                  )}
                 </div>
 
                 {/* Logo */}
