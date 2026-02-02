@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Trophy, Calendar, Users, X, ChevronRight, ChevronLeft, Clock, MapPin, Check } from 'lucide-react'
+import { Plus, Trophy, Calendar, Users, X, ChevronRight, ChevronLeft, Clock, MapPin, Check, FileText, Award } from 'lucide-react'
 import { getEquipos } from '../../services/equipos.service'
 import {
   createTemporada,
@@ -9,6 +9,7 @@ import {
   getTorneos,
   deleteTorneo,
   getTorneoGameStats,
+  uploadReglamento,
 } from '../../services/torneos.service'
 import { createJuegosBulk } from '../../services/torneos.service'
 import {
@@ -20,10 +21,16 @@ import { DIAS_SEMANA, FASES_TORNEO } from '../../utils/constants'
 import ConfirmModal from '../../components/ConfirmModal'
 import toast from 'react-hot-toast'
 
-const WIZARD_STEPS = [
-  { label: 'Info Basica', icon: Trophy },
+const STEPS_MANUAL = [
+  { label: 'Info y Premios', icon: Trophy },
   { label: 'Horarios', icon: Clock },
   { label: 'Equipos', icon: Users },
+  { label: 'Confirmar', icon: Check },
+]
+
+const STEPS_INSCRIPCION = [
+  { label: 'Info y Premios', icon: Trophy },
+  { label: 'Horarios', icon: Clock },
   { label: 'Confirmar', icon: Check },
 ]
 
@@ -42,7 +49,6 @@ export default function AdminTorneoPage() {
     try {
       const data = await getTorneos()
       setTorneos(data)
-      // Fetch stats for each torneo
       const stats = {}
       await Promise.all(
         data.map(async (t) => {
@@ -83,6 +89,7 @@ export default function AdminTorneoPage() {
     const config = FASES_TORNEO.find(f => f.value === fase) || FASES_TORNEO[0]
     const colorMap = {
       gray: 'bg-gray-100 text-gray-600',
+      yellow: 'bg-yellow-100 text-yellow-700',
       blue: 'bg-blue-100 text-blue-700',
       orange: 'bg-orange-100 text-orange-700',
       green: 'bg-green-100 text-green-700',
@@ -150,18 +157,26 @@ export default function AdminTorneoPage() {
                   </div>
 
                   {/* Progress bar */}
-                  <div className="mb-3">
-                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span>{stats.finalizados || 0} / {stats.total || 0} juegos</span>
-                      <span>{progress}%</span>
+                  {torneo.fase !== 'inscripcion' && (
+                    <div className="mb-3">
+                      <div className="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>{stats.finalizados || 0} / {stats.total || 0} juegos</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-primary-500 h-2 rounded-full transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-primary-500 h-2 rounded-full transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
+                  )}
+
+                  {torneo.fase === 'inscripcion' && torneo.fecha_inscripcion_fin && (
+                    <div className="mb-3 text-xs text-yellow-700 bg-yellow-50 rounded-lg p-2">
+                      Inscripciones hasta: {new Date(torneo.fecha_inscripcion_fin + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </div>
-                  </div>
+                  )}
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
@@ -221,18 +236,31 @@ function TorneoWizard({ onClose, onComplete }) {
   const [equiposDisponibles, setEquiposDisponibles] = useState([])
   const [loadingEquipos, setLoadingEquipos] = useState(true)
 
+  // Modo de creacion
+  const [modoCreacion, setModoCreacion] = useState('manual')
+
   // Step 1 - Info
   const [nombre, setNombre] = useState('')
   const [fechaInicio, setFechaInicio] = useState('')
   const [lugar, setLugar] = useState('')
+  const [descripcion, setDescripcion] = useState('')
+  const [premio1, setPremio1] = useState('')
+  const [premio2, setPremio2] = useState('')
+  const [premio3, setPremio3] = useState('')
+  const [reglamentoFile, setReglamentoFile] = useState(null)
+  const [fechaInscInicio, setFechaInscInicio] = useState('')
+  const [fechaInscFin, setFechaInscFin] = useState('')
 
   // Step 2 - Horarios
   const [diasJuego, setDiasJuego] = useState([])
   const [horarios, setHorarios] = useState(['20:00'])
   const [nuevoHorario, setNuevoHorario] = useState('21:00')
 
-  // Step 3 - Equipos
+  // Step 3 - Equipos (solo modo manual)
   const [equiposSeleccionados, setEquiposSeleccionados] = useState([])
+
+  const wizardSteps = modoCreacion === 'inscripcion' ? STEPS_INSCRIPCION : STEPS_MANUAL
+  const lastStep = wizardSteps.length - 1
 
   useEffect(() => {
     const fetchEquipos = async () => {
@@ -249,9 +277,15 @@ function TorneoWizard({ onClose, onComplete }) {
   }, [])
 
   const canNext = () => {
-    if (step === 0) return nombre.trim() && fechaInicio
+    if (step === 0) {
+      const baseValid = nombre.trim() && fechaInicio
+      if (modoCreacion === 'inscripcion') {
+        return baseValid && fechaInscInicio && fechaInscFin && fechaInscFin >= fechaInscInicio
+      }
+      return baseValid
+    }
     if (step === 1) return diasJuego.length > 0 && horarios.length > 0
-    if (step === 2) return equiposSeleccionados.length >= 3
+    if (modoCreacion === 'manual' && step === 2) return equiposSeleccionados.length >= 3
     return true
   }
 
@@ -277,7 +311,7 @@ function TorneoWizard({ onClose, onComplete }) {
     )
   }
 
-  const previewStats = step === 3
+  const previewStats = (modoCreacion === 'manual' && step === lastStep)
     ? calculateTournamentStats(equiposSeleccionados.length, diasJuego, horarios, fechaInicio)
     : null
 
@@ -291,36 +325,60 @@ function TorneoWizard({ onClose, onComplete }) {
         activa: true,
       })
 
-      // 2. Crear torneo
-      const torneo = await createTorneo({
+      const torneoData = {
         temporada_id: temporada.id,
         nombre,
         fecha_inicio: fechaInicio,
         dias_juego: diasJuego,
         horarios: horarios,
         lugar: lugar || null,
-        fase: 'regular',
-      })
+        descripcion: descripcion || null,
+        premio_1er_lugar: premio1 || null,
+        premio_2do_lugar: premio2 || null,
+        premio_3er_lugar: premio3 || null,
+      }
 
-      // 3. Vincular equipos
-      await addTorneoEquipos(torneo.id, equiposSeleccionados)
+      if (modoCreacion === 'inscripcion') {
+        // Modo inscripcion: crear torneo sin calendario
+        torneoData.fase = 'inscripcion'
+        torneoData.fecha_inscripcion_inicio = fechaInscInicio
+        torneoData.fecha_inscripcion_fin = fechaInscFin
 
-      // 4. Generar calendario
-      const { allRounds } = generateDoubleRoundRobin(equiposSeleccionados)
-      const games = assignDatesAndSlots(allRounds, {
-        startDate: fechaInicio,
-        gameDays: diasJuego,
-        timeSlots: horarios,
-        lugar: lugar || null,
-        temporadaId: temporada.id,
-        torneoId: torneo.id,
-      })
+        const torneo = await createTorneo(torneoData)
 
-      // 5. Insertar juegos
-      await createJuegosBulk(games)
+        if (reglamentoFile) {
+          await uploadReglamento(torneo.id, reglamentoFile)
+        }
 
-      toast.success(`Torneo creado con ${games.length} juegos`)
-      onComplete()
+        toast.success('Torneo creado. Las inscripciones estan abiertas.')
+        onComplete()
+      } else {
+        // Modo manual: flujo existente
+        torneoData.fase = 'regular'
+
+        const torneo = await createTorneo(torneoData)
+
+        if (reglamentoFile) {
+          await uploadReglamento(torneo.id, reglamentoFile)
+        }
+
+        await addTorneoEquipos(torneo.id, equiposSeleccionados)
+
+        const { allRounds } = generateDoubleRoundRobin(equiposSeleccionados)
+        const games = assignDatesAndSlots(allRounds, {
+          startDate: fechaInicio,
+          gameDays: diasJuego,
+          timeSlots: horarios,
+          lugar: lugar || null,
+          temporadaId: temporada.id,
+          torneoId: torneo.id,
+        })
+
+        await createJuegosBulk(games)
+
+        toast.success(`Torneo creado con ${games.length} juegos`)
+        onComplete()
+      }
     } catch (error) {
       console.error(error)
       toast.error('Error al generar torneo: ' + (error.message || ''))
@@ -328,6 +386,18 @@ function TorneoWizard({ onClose, onComplete }) {
       setSaving(false)
     }
   }
+
+  // Determinar que step de contenido mostrar
+  const getContentStep = () => {
+    if (modoCreacion === 'manual') return step
+    // En modo inscripcion: step 0=info, step 1=horarios, step 2=preview
+    if (step === 0) return 0
+    if (step === 1) return 1
+    if (step === 2) return 'preview-inscripcion'
+    return step
+  }
+
+  const contentStep = getContentStep()
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -344,7 +414,7 @@ function TorneoWizard({ onClose, onComplete }) {
         {/* Stepper */}
         <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
           <div className="flex items-center justify-between">
-            {WIZARD_STEPS.map((s, i) => {
+            {wizardSteps.map((s, i) => {
               const Icon = s.icon
               const isActive = i === step
               const isCompleted = i < step
@@ -362,7 +432,7 @@ function TorneoWizard({ onClose, onComplete }) {
                   }`}>
                     {s.label}
                   </span>
-                  {i < WIZARD_STEPS.length - 1 && (
+                  {i < wizardSteps.length - 1 && (
                     <ChevronRight size={16} className="text-gray-300 mx-1" />
                   )}
                 </div>
@@ -373,21 +443,29 @@ function TorneoWizard({ onClose, onComplete }) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {step === 0 && (
+          {contentStep === 0 && (
             <StepInfo
               nombre={nombre} setNombre={setNombre}
               fechaInicio={fechaInicio} setFechaInicio={setFechaInicio}
               lugar={lugar} setLugar={setLugar}
+              descripcion={descripcion} setDescripcion={setDescripcion}
+              premio1={premio1} setPremio1={setPremio1}
+              premio2={premio2} setPremio2={setPremio2}
+              premio3={premio3} setPremio3={setPremio3}
+              reglamentoFile={reglamentoFile} setReglamentoFile={setReglamentoFile}
+              modoCreacion={modoCreacion} setModoCreacion={setModoCreacion}
+              fechaInscInicio={fechaInscInicio} setFechaInscInicio={setFechaInscInicio}
+              fechaInscFin={fechaInscFin} setFechaInscFin={setFechaInscFin}
             />
           )}
-          {step === 1 && (
+          {contentStep === 1 && (
             <StepHorarios
               diasJuego={diasJuego} toggleDia={toggleDia}
               horarios={horarios} addHorario={addHorario} removeHorario={removeHorario}
               nuevoHorario={nuevoHorario} setNuevoHorario={setNuevoHorario}
             />
           )}
-          {step === 2 && (
+          {contentStep === 2 && modoCreacion === 'manual' && (
             <StepEquipos
               equipos={equiposDisponibles}
               loading={loadingEquipos}
@@ -395,15 +473,21 @@ function TorneoWizard({ onClose, onComplete }) {
               toggle={toggleEquipo}
             />
           )}
-          {step === 3 && (
+          {((contentStep === 3 && modoCreacion === 'manual') || contentStep === 'preview-inscripcion') && (
             <StepPreview
               nombre={nombre}
               fechaInicio={fechaInicio}
               lugar={lugar}
+              descripcion={descripcion}
+              premio1={premio1} premio2={premio2} premio3={premio3}
               diasJuego={diasJuego}
               horarios={horarios}
-              equipos={equiposDisponibles.filter(e => equiposSeleccionados.includes(e.id))}
+              equipos={modoCreacion === 'manual' ? equiposDisponibles.filter(e => equiposSeleccionados.includes(e.id)) : []}
               stats={previewStats}
+              modoCreacion={modoCreacion}
+              fechaInscInicio={fechaInscInicio}
+              fechaInscFin={fechaInscFin}
+              reglamentoFile={reglamentoFile}
             />
           )}
         </div>
@@ -419,7 +503,7 @@ function TorneoWizard({ onClose, onComplete }) {
             {step > 0 ? 'Anterior' : 'Cancelar'}
           </button>
 
-          {step < 3 ? (
+          {step < lastStep ? (
             <button
               onClick={() => setStep(step + 1)}
               disabled={!canNext()}
@@ -439,6 +523,11 @@ function TorneoWizard({ onClose, onComplete }) {
                   <div className="spinner w-4 h-4 border-white border-t-transparent"></div>
                   Generando...
                 </>
+              ) : modoCreacion === 'inscripcion' ? (
+                <>
+                  <Trophy size={18} />
+                  Crear Torneo
+                </>
               ) : (
                 <>
                   <Trophy size={18} />
@@ -453,37 +542,128 @@ function TorneoWizard({ onClose, onComplete }) {
   )
 }
 
-function StepInfo({ nombre, setNombre, fechaInicio, setFechaInicio, lugar, setLugar }) {
+function StepInfo({
+  nombre, setNombre, fechaInicio, setFechaInicio, lugar, setLugar,
+  descripcion, setDescripcion,
+  premio1, setPremio1, premio2, setPremio2, premio3, setPremio3,
+  reglamentoFile, setReglamentoFile,
+  modoCreacion, setModoCreacion,
+  fechaInscInicio, setFechaInscInicio, fechaInscFin, setFechaInscFin,
+}) {
   return (
     <div className="space-y-4">
+      {/* Modo de creacion */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Modo de creacion</label>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setModoCreacion('manual')}
+            className={`p-3 rounded-xl border-2 text-left transition-colors ${
+              modoCreacion === 'manual' ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <p className="font-medium text-sm text-gray-900">Seleccion Manual</p>
+            <p className="text-xs text-gray-500">Elegir equipos existentes</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setModoCreacion('inscripcion')}
+            className={`p-3 rounded-xl border-2 text-left transition-colors ${
+              modoCreacion === 'inscripcion' ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <p className="font-medium text-sm text-gray-900">Inscripcion Publica</p>
+            <p className="text-xs text-gray-500">Los equipos se inscriben online</p>
+          </button>
+        </div>
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del torneo *</label>
-        <input
-          type="text"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
-          placeholder="Ej: Torneo Apertura 2025"
-          className="input"
-        />
+        <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)}
+          placeholder="Ej: Torneo Verano 2026" className="input" />
       </div>
+
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio *</label>
-        <input
-          type="date"
-          value={fechaInicio}
-          onChange={(e) => setFechaInicio(e.target.value)}
-          className="input"
-        />
+        <label className="block text-sm font-medium text-gray-700 mb-1">Descripcion (opcional)</label>
+        <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)}
+          className="input" rows={2} placeholder="Descripcion del torneo..." />
       </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio del torneo *</label>
+          <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="input" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Lugar (opcional)</label>
+          <input type="text" value={lugar} onChange={(e) => setLugar(e.target.value)}
+            placeholder="Ej: Gimnasio Municipal" className="input" />
+        </div>
+      </div>
+
+      {/* Fechas de inscripcion (solo modo inscripcion) */}
+      {modoCreacion === 'inscripcion' && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Inicio inscripciones *</label>
+            <input type="date" value={fechaInscInicio} onChange={(e) => setFechaInscInicio(e.target.value)} className="input" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fin inscripciones *</label>
+            <input type="date" value={fechaInscFin} onChange={(e) => setFechaInscFin(e.target.value)} className="input" />
+          </div>
+        </div>
+      )}
+
+      {/* Premios */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Lugar (opcional)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          <Award size={14} className="inline mr-1" />
+          Premiacion (opcional)
+        </label>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">1er lugar</label>
+            <input type="text" value={premio1} onChange={(e) => setPremio1(e.target.value)}
+              className="input text-sm" placeholder="Ej: Trofeo + $5000" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">2do lugar</label>
+            <input type="text" value={premio2} onChange={(e) => setPremio2(e.target.value)}
+              className="input text-sm" placeholder="Ej: $3000" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">3er lugar</label>
+            <input type="text" value={premio3} onChange={(e) => setPremio3(e.target.value)}
+              className="input text-sm" placeholder="Ej: $1000" />
+          </div>
+        </div>
+      </div>
+
+      {/* Reglamento PDF */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          <FileText size={14} className="inline mr-1" />
+          Reglamento PDF (opcional)
+        </label>
         <input
-          type="text"
-          value={lugar}
-          onChange={(e) => setLugar(e.target.value)}
-          placeholder="Ej: Gimnasio Municipal"
-          className="input"
+          type="file"
+          accept=".pdf"
+          onChange={(e) => {
+            const file = e.target.files[0]
+            if (file && file.size > 10 * 1024 * 1024) {
+              toast.error('El archivo no debe superar 10MB')
+              return
+            }
+            setReglamentoFile(file || null)
+          }}
+          className="input text-sm"
         />
+        {reglamentoFile && (
+          <p className="text-xs text-gray-500 mt-1">{reglamentoFile.name} ({(reglamentoFile.size / 1024 / 1024).toFixed(1)}MB)</p>
+        )}
       </div>
     </div>
   )
@@ -492,7 +672,6 @@ function StepInfo({ nombre, setNombre, fechaInicio, setFechaInicio, lugar, setLu
 function StepHorarios({ diasJuego, toggleDia, horarios, addHorario, removeHorario, nuevoHorario, setNuevoHorario }) {
   return (
     <div className="space-y-6">
-      {/* Dias de juego */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Dias de juego *</label>
         <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
@@ -513,7 +692,6 @@ function StepHorarios({ diasJuego, toggleDia, horarios, addHorario, removeHorari
         </div>
       </div>
 
-      {/* Horarios */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Horarios de juego *</label>
         <div className="flex flex-wrap gap-2 mb-3">
@@ -528,17 +706,8 @@ function StepHorarios({ diasJuego, toggleDia, horarios, addHorario, removeHorari
           ))}
         </div>
         <div className="flex gap-2">
-          <input
-            type="time"
-            value={nuevoHorario}
-            onChange={(e) => setNuevoHorario(e.target.value)}
-            className="input flex-1"
-          />
-          <button
-            type="button"
-            onClick={addHorario}
-            className="btn-primary px-4"
-          >
+          <input type="time" value={nuevoHorario} onChange={(e) => setNuevoHorario(e.target.value)} className="input flex-1" />
+          <button type="button" onClick={addHorario} className="btn-primary px-4">
             <Plus size={18} />
           </button>
         </div>
@@ -607,80 +776,145 @@ function StepEquipos({ equipos, loading, seleccionados, toggle }) {
   )
 }
 
-function StepPreview({ nombre, fechaInicio, lugar, diasJuego, horarios, equipos, stats }) {
+function StepPreview({
+  nombre, fechaInicio, lugar, descripcion,
+  premio1, premio2, premio3,
+  diasJuego, horarios, equipos, stats,
+  modoCreacion, fechaInscInicio, fechaInscFin, reglamentoFile,
+}) {
   const diasLabels = diasJuego.map(d => DIAS_SEMANA.find(dia => dia.value === d)?.abbr).join(', ')
 
   return (
     <div className="space-y-5">
       <div className="bg-gray-50 rounded-xl p-4">
         <h3 className="font-bold text-gray-900 text-lg mb-1">{nombre}</h3>
+        {descripcion && <p className="text-sm text-gray-600 mb-2">{descripcion}</p>}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
           <span>Inicio: {new Date(fechaInicio + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
           {lugar && <span>Lugar: {lugar}</span>}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-blue-50 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-blue-700">{stats?.totalGames || 0}</p>
-          <p className="text-xs text-blue-600 font-medium">Juegos totales</p>
+      {/* Premios */}
+      {(premio1 || premio2 || premio3) && (
+        <div>
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Premiacion</h4>
+          <div className="grid grid-cols-3 gap-2">
+            {premio1 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 text-center">
+                <p className="text-xs text-yellow-600 font-medium">1er lugar</p>
+                <p className="text-sm font-bold text-yellow-800">{premio1}</p>
+              </div>
+            )}
+            {premio2 && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
+                <p className="text-xs text-gray-500 font-medium">2do lugar</p>
+                <p className="text-sm font-bold text-gray-700">{premio2}</p>
+              </div>
+            )}
+            {premio3 && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 text-center">
+                <p className="text-xs text-orange-600 font-medium">3er lugar</p>
+                <p className="text-sm font-bold text-orange-700">{premio3}</p>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="bg-green-50 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-green-700">{stats?.totalRounds || 0}</p>
-          <p className="text-xs text-green-600 font-medium">Jornadas</p>
-        </div>
-        <div className="bg-orange-50 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-orange-700">{stats?.estimatedWeeks || 0}</p>
-          <p className="text-xs text-orange-600 font-medium">Semanas aprox.</p>
-        </div>
-        <div className="bg-purple-50 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-purple-700">
-            {stats?.estimatedEndDate
-              ? new Date(stats.estimatedEndDate + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
-              : '-'}
-          </p>
-          <p className="text-xs text-purple-600 font-medium">Fecha estimada fin</p>
-        </div>
-      </div>
+      )}
 
-      <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-2">Configuracion</h4>
-        <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm text-gray-600">
-          <p><span className="font-medium">Dias:</span> {diasLabels}</p>
-          <p><span className="font-medium">Horarios:</span> {horarios.join(', ')}</p>
-          <p><span className="font-medium">Slots por dia:</span> {horarios.length} juego{horarios.length > 1 ? 's' : ''}</p>
+      {reglamentoFile && (
+        <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 rounded-lg p-3">
+          <FileText size={16} className="text-blue-500" />
+          Reglamento: {reglamentoFile.name}
         </div>
-      </div>
+      )}
 
-      <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-2">Equipos ({equipos.length})</h4>
-        <div className="flex flex-wrap gap-2">
-          {equipos.map(eq => (
-            <span
-              key={eq.id}
-              className="inline-flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg text-sm"
-            >
-              {eq.logo_url ? (
-                <img src={eq.logo_url} alt="" className="w-5 h-5 rounded-full object-contain" />
-              ) : (
-                <span
-                  className="w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[10px] font-bold"
-                  style={{ backgroundColor: eq.color_primario || '#6B7280' }}
-                >
-                  {(eq.nombre_corto || '').substring(0, 2).toUpperCase()}
+      {modoCreacion === 'inscripcion' ? (
+        <>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+            <h4 className="text-sm font-medium text-yellow-800 mb-2">Periodo de inscripcion</h4>
+            <div className="flex gap-4 text-sm text-yellow-700">
+              <span>Desde: {new Date(fechaInscInicio + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+              <span>Hasta: {new Date(fechaInscFin + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Configuracion de horarios</h4>
+            <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm text-gray-600">
+              <p><span className="font-medium">Dias:</span> {diasLabels}</p>
+              <p><span className="font-medium">Horarios:</span> {horarios.join(', ')}</p>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm text-blue-800">
+              Se creara el torneo en fase de <strong>inscripcion</strong>. Los equipos podran inscribirse en la pagina publica. Una vez cerradas las inscripciones, podras revisar, aprobar equipos e iniciar el torneo desde el detalle del torneo.
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-blue-50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-blue-700">{stats?.totalGames || 0}</p>
+              <p className="text-xs text-blue-600 font-medium">Juegos totales</p>
+            </div>
+            <div className="bg-green-50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-green-700">{stats?.totalRounds || 0}</p>
+              <p className="text-xs text-green-600 font-medium">Jornadas</p>
+            </div>
+            <div className="bg-orange-50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-orange-700">{stats?.estimatedWeeks || 0}</p>
+              <p className="text-xs text-orange-600 font-medium">Semanas aprox.</p>
+            </div>
+            <div className="bg-purple-50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-purple-700">
+                {stats?.estimatedEndDate
+                  ? new Date(stats.estimatedEndDate + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
+                  : '-'}
+              </p>
+              <p className="text-xs text-purple-600 font-medium">Fecha estimada fin</p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Configuracion</h4>
+            <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm text-gray-600">
+              <p><span className="font-medium">Dias:</span> {diasLabels}</p>
+              <p><span className="font-medium">Horarios:</span> {horarios.join(', ')}</p>
+              <p><span className="font-medium">Slots por dia:</span> {horarios.length} juego{horarios.length > 1 ? 's' : ''}</p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Equipos ({equipos.length})</h4>
+            <div className="flex flex-wrap gap-2">
+              {equipos.map(eq => (
+                <span key={eq.id} className="inline-flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg text-sm">
+                  {eq.logo_url ? (
+                    <img src={eq.logo_url} alt="" className="w-5 h-5 rounded-full object-contain" />
+                  ) : (
+                    <span
+                      className="w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[10px] font-bold"
+                      style={{ backgroundColor: eq.color_primario || '#6B7280' }}
+                    >
+                      {(eq.nombre_corto || '').substring(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                  {eq.nombre_corto || eq.nombre}
                 </span>
-              )}
-              {eq.nombre_corto || eq.nombre}
-            </span>
-          ))}
-        </div>
-      </div>
+              ))}
+            </div>
+          </div>
 
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-        <p className="text-sm text-yellow-800">
-          Al confirmar se creara la temporada, el torneo y se generaran <strong>{stats?.totalGames || 0} juegos</strong> automaticamente en el calendario.
-        </p>
-      </div>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <p className="text-sm text-yellow-800">
+              Al confirmar se creara la temporada, el torneo y se generaran <strong>{stats?.totalGames || 0} juegos</strong> automaticamente en el calendario.
+            </p>
+          </div>
+        </>
+      )}
     </div>
   )
 }

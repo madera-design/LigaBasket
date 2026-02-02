@@ -232,6 +232,239 @@ export const updateSeriePlayoff = async (id, updates) => {
   return data
 }
 
+// ---- Reglamento PDF ----
+
+export const uploadReglamento = async (torneoId, file) => {
+  const fileExt = file.name.split('.').pop()
+  const filePath = `torneos/${torneoId}.${fileExt}`
+
+  const { error: uploadError } = await supabase.storage
+    .from('reglamentos')
+    .upload(filePath, file, { upsert: true })
+  if (uploadError) throw uploadError
+
+  const { data } = supabase.storage.from('reglamentos').getPublicUrl(filePath)
+
+  await updateTorneo(torneoId, { reglamento_url: data.publicUrl })
+  return data.publicUrl
+}
+
+// ---- Materializar inscripciones ----
+
+export const materializeInscripciones = async (torneoId) => {
+  const { data: inscripciones, error } = await supabase
+    .from('inscripciones')
+    .select('*')
+    .eq('torneo_id', torneoId)
+    .eq('estado', 'aprobada')
+  if (error) throw error
+
+  if (inscripciones.length < 3) {
+    throw new Error('Se necesitan al menos 3 equipos aprobados para iniciar el torneo')
+  }
+
+  const equipoIds = []
+
+  for (const insc of inscripciones) {
+    const { data: equipo, error: eqErr } = await supabase
+      .from('equipos')
+      .insert([{
+        nombre: insc.nombre_equipo,
+        nombre_corto: insc.nombre_corto || insc.nombre_equipo.substring(0, 4).toUpperCase(),
+        entrenador: insc.delegado_nombre,
+        delegate_name: insc.delegado_nombre,
+        delegate_email: insc.delegado_email,
+        logo_url: insc.logo_url || null,
+        color_primario: insc.color_primario || '#f97316',
+        color_secundario: insc.color_secundario || '#ffffff',
+        activo: true,
+      }])
+      .select()
+      .single()
+    if (eqErr) throw eqErr
+
+    equipoIds.push(equipo.id)
+
+    const jugadores = (insc.jugadores || []).map(j => ({
+      equipo_id: equipo.id,
+      nombre: j.nombre,
+      apellido: j.apellido,
+      numero: Number(j.numero),
+      posicion: j.posicion,
+      altura_cm: j.altura ? Math.round(j.altura * 100) : null,
+      peso_kg: j.peso || null,
+      foto_url: j.foto_url || null,
+      activo: true,
+    }))
+
+    if (jugadores.length > 0) {
+      const { error: jugErr } = await supabase
+        .from('jugadores')
+        .insert(jugadores)
+      if (jugErr) throw jugErr
+    }
+
+    await supabase
+      .from('inscripciones')
+      .update({ equipo_id: equipo.id })
+      .eq('id', insc.id)
+  }
+
+  return equipoIds
+}
+
+// ---- Materializar UNA inscripcion (mid-torneo) ----
+
+export const materializeSingleInscripcion = async (inscripcionId) => {
+  const { data: insc, error } = await supabase
+    .from('inscripciones')
+    .select('*')
+    .eq('id', inscripcionId)
+    .single()
+  if (error) throw error
+
+  if (insc.estado !== 'aprobada') {
+    throw new Error('La inscripcion debe estar aprobada')
+  }
+
+  const { data: equipo, error: eqErr } = await supabase
+    .from('equipos')
+    .insert([{
+      nombre: insc.nombre_equipo,
+      nombre_corto: insc.nombre_corto || insc.nombre_equipo.substring(0, 4).toUpperCase(),
+      entrenador: insc.delegado_nombre,
+      delegate_name: insc.delegado_nombre,
+      delegate_email: insc.delegado_email,
+      logo_url: insc.logo_url || null,
+      color_primario: insc.color_primario || '#f97316',
+      color_secundario: insc.color_secundario || '#ffffff',
+      activo: true,
+    }])
+    .select()
+    .single()
+  if (eqErr) throw eqErr
+
+  const jugadores = (insc.jugadores || []).map(j => ({
+    equipo_id: equipo.id,
+    nombre: j.nombre,
+    apellido: j.apellido,
+    numero: Number(j.numero),
+    posicion: j.posicion,
+    altura_cm: j.altura ? Math.round(j.altura * 100) : null,
+    peso_kg: j.peso || null,
+    foto_url: j.foto_url || null,
+    activo: true,
+  }))
+
+  if (jugadores.length > 0) {
+    const { error: jugErr } = await supabase
+      .from('jugadores')
+      .insert(jugadores)
+    if (jugErr) throw jugErr
+  }
+
+  await supabase
+    .from('inscripciones')
+    .update({ equipo_id: equipo.id })
+    .eq('id', insc.id)
+
+  // Agregar al torneo
+  await supabase
+    .from('torneo_equipos')
+    .insert([{ torneo_id: insc.torneo_id, equipo_id: equipo.id }])
+
+  return { equipoId: equipo.id, torneoId: insc.torneo_id }
+}
+
+// ---- Regenerar calendario (preservando juegos finalizados) ----
+
+export const regenerateCalendar = async (torneoId) => {
+  // 1. Obtener torneo
+  const { data: torneo, error: tErr } = await supabase
+    .from('torneos')
+    .select('*')
+    .eq('id', torneoId)
+    .single()
+  if (tErr) throw tErr
+
+  // 2. Obtener equipos del torneo
+  const { data: torneoEquipos, error: teErr } = await supabase
+    .from('torneo_equipos')
+    .select('equipo_id')
+    .eq('torneo_id', torneoId)
+  if (teErr) throw teErr
+
+  const teamIds = torneoEquipos.map(te => te.equipo_id)
+
+  // 3. Obtener juegos existentes
+  const { data: existingGames, error: gErr } = await supabase
+    .from('juegos')
+    .select('id, equipo_local_id, equipo_visitante_id, estado, fecha, fase_juego')
+    .eq('torneo_id', torneoId)
+    .in('fase_juego', ['ida', 'vuelta'])
+  if (gErr) throw gErr
+
+  // Separar finalizados de no-finalizados
+  const finalized = existingGames.filter(g => g.estado === 'finalizado')
+  const notFinalized = existingGames.filter(g => g.estado !== 'finalizado')
+
+  // 4. Eliminar juegos no finalizados (no playoff)
+  if (notFinalized.length > 0) {
+    const deleteIds = notFinalized.map(g => g.id)
+    const { error: delErr } = await supabase
+      .from('juegos')
+      .delete()
+      .in('id', deleteIds)
+    if (delErr) throw delErr
+  }
+
+  // 5. Generar round-robin completo con todos los equipos
+  const { generateDoubleRoundRobin, assignDatesAndSlots } = await import('../utils/tournamentScheduler')
+  const { allRounds } = generateDoubleRoundRobin(teamIds)
+
+  // 6. Crear set de partidos ya jugados (finalizados)
+  const playedPairs = new Set()
+  finalized.forEach(g => {
+    playedPairs.add(`${g.equipo_local_id}_${g.equipo_visitante_id}`)
+  })
+
+  // 7. Filtrar solo matchups no jugados
+  const newRounds = allRounds.map(round =>
+    round.filter(m => !playedPairs.has(`${m.home}_${m.away}`))
+  ).filter(round => round.length > 0)
+
+  // 8. Determinar fecha de inicio para nuevos juegos
+  let startDate = torneo.fecha_inicio
+  if (finalized.length > 0) {
+    const lastDate = finalized.reduce((max, g) => g.fecha > max ? g.fecha : max, finalized[0].fecha)
+    const nextDay = new Date(lastDate)
+    nextDay.setDate(nextDay.getDate() + 1)
+    startDate = nextDay.toISOString().split('T')[0]
+  }
+
+  // 9. Asignar fechas y crear juegos
+  const games = assignDatesAndSlots(newRounds, {
+    startDate,
+    gameDays: torneo.dias_juego,
+    timeSlots: torneo.horarios,
+    lugar: torneo.lugar,
+    temporadaId: torneo.temporada_id,
+    torneoId: torneo.id,
+  })
+
+  let newGamesCreated = 0
+  if (games.length > 0) {
+    await createJuegosBulk(games)
+    newGamesCreated = games.length
+  }
+
+  return {
+    preservedGames: finalized.length,
+    deletedGames: notFinalized.length,
+    newGames: newGamesCreated,
+  }
+}
+
 // ---- Conteo de juegos por torneo ----
 
 export const getTorneoGameStats = async (torneoId) => {

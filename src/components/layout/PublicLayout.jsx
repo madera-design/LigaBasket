@@ -7,7 +7,8 @@ import {
   BarChart2, 
   Menu, 
   X,
-  LogIn
+  LogIn,
+  ClipboardList
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -18,6 +19,7 @@ const navLinks = [
   { path: '/equipos', label: 'Equipos', icon: Users },
   { path: '/posiciones', label: 'Posiciones', icon: Trophy },
   { path: '/estadisticas', label: 'Estadísticas', icon: BarChart2 },
+  { path: '/inscripcion', label: 'Inscripción', icon: ClipboardList },
 ]
 
 export default function PublicLayout() {

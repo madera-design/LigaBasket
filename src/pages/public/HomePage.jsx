@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
-import { Calendar, Users, Trophy, ArrowRight, TrendingUp } from 'lucide-react'
+import { Calendar, Users, Trophy, ArrowRight, TrendingUp, ClipboardList, MapPin, Award } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { getProximosJuegos, getUltimosResultados } from '../../services/juegos.service'
 import { calcularPosiciones, getLideres } from '../../services/estadisticas.service'
 import { getTorneoActivo } from '../../services/torneos.service'
+import { getTorneosConInscripcionAbierta } from '../../services/inscripciones.service'
 import { formatDate, formatTime } from '../../utils/formatters'
 
 export default function HomePage() {
@@ -11,6 +12,7 @@ export default function HomePage() {
   const [ultimosResultados, setUltimosResultados] = useState([])
   const [posiciones, setPosiciones] = useState([])
   const [lideres, setLideres] = useState([])
+  const [torneosAbiertos, setTorneosAbiertos] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -20,16 +22,18 @@ export default function HomePage() {
         const torneoActivo = await getTorneoActivo()
         const torneoId = torneoActivo?.id || null
 
-        const [juegos, resultados, tabla, lideresData] = await Promise.all([
+        const [juegos, resultados, tabla, lideresData, torneosInsc] = await Promise.all([
           getProximosJuegos(3),
           getUltimosResultados(3),
           torneoId ? calcularPosiciones(torneoId) : Promise.resolve([]),
           torneoId ? getLideres('ppj', 5, torneoId) : Promise.resolve([]),
+          getTorneosConInscripcionAbierta(),
         ])
         setProximosJuegos(juegos)
         setUltimosResultados(resultados)
         setPosiciones(tabla.slice(0, 5))
         setLideres(lideresData)
+        setTorneosAbiertos(torneosInsc)
       } catch (error) {
         console.error('Error loading home data:', error)
       } finally {
@@ -74,6 +78,62 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Torneos con inscripcion abierta */}
+      {torneosAbiertos.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-gray-900">
+              <ClipboardList className="inline mr-2 text-yellow-500" size={22} />
+              Inscripciones Abiertas
+            </h2>
+            <Link to="/inscripcion" className="text-primary-500 hover:text-primary-600 flex items-center gap-1 text-sm font-medium">
+              Ver todas <ArrowRight size={16} />
+            </Link>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {torneosAbiertos.map(torneo => (
+              <Link
+                key={torneo.id}
+                to={`/inscripcion/${torneo.id}`}
+                className="card-hover p-5 border-l-4 border-yellow-400"
+              >
+                <h3 className="font-bold text-gray-900 mb-1">{torneo.nombre}</h3>
+                {torneo.temporada?.nombre && (
+                  <p className="text-xs text-gray-400 mb-2">{torneo.temporada.nombre}</p>
+                )}
+                {torneo.descripcion && (
+                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">{torneo.descripcion}</p>
+                )}
+                {(torneo.premio_1er_lugar || torneo.premio_2do_lugar || torneo.premio_3er_lugar) && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {torneo.premio_1er_lugar && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded-full">
+                        <Award size={12} /> 1ro: {torneo.premio_1er_lugar}
+                      </span>
+                    )}
+                    {torneo.premio_2do_lugar && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        2do: {torneo.premio_2do_lugar}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  {torneo.lugar && (
+                    <span className="flex items-center gap-1">
+                      <MapPin size={12} /> {torneo.lugar}
+                    </span>
+                  )}
+                  <span className="text-yellow-600 font-medium">
+                    Cierra: {formatDate(torneo.fecha_inscripcion_fin, 'dd/MM/yyyy')}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Próximos juegos */}

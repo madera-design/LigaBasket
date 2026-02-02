@@ -59,9 +59,17 @@ export const CHART_COLORS = [
 // Fases del torneo
 export const FASES_TORNEO = [
   { value: 'configuracion', label: 'Configuracion', color: 'gray' },
+  { value: 'inscripcion', label: 'Inscripciones', color: 'yellow' },
   { value: 'regular', label: 'Temporada Regular', color: 'blue' },
   { value: 'playoffs', label: 'Playoffs', color: 'orange' },
   { value: 'finalizado', label: 'Finalizado', color: 'green' },
+]
+
+// Estados de inscripcion
+export const ESTADOS_INSCRIPCION = [
+  { value: 'pendiente', label: 'Pendiente', color: 'yellow' },
+  { value: 'aprobada', label: 'Aprobada', color: 'green' },
+  { value: 'rechazada', label: 'Rechazada', color: 'red' },
 ]
 
 // Dias de la semana (0=Dom, 1=Lun, ..., 6=Sab)
@@ -86,4 +94,6 @@ export const LIMITS = {
   MAX_WEIGHT: 200,
   GAME_QUARTERS: 4,
   QUARTER_MINUTES: 10,
+  MIN_PLAYERS_PER_REGISTRATION: 5,
+  MAX_PLAYERS_PER_REGISTRATION: 12,
 }

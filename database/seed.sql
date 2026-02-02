@@ -10,10 +10,16 @@ DELETE FROM tabla_posiciones;
 DELETE FROM juegos;
 DELETE FROM series_playoff;
 DELETE FROM torneo_equipos;
+DELETE FROM inscripciones;
 DELETE FROM torneos;
 DELETE FROM temporadas;
 DELETE FROM jugadores;
 DELETE FROM equipos;
+
+-- Limpiar archivos de storage
+DELETE FROM storage.objects WHERE bucket_id = 'reglamentos';
+DELETE FROM storage.objects WHERE bucket_id = 'logos';
+DELETE FROM storage.objects WHERE bucket_id = 'fotos';
 
 -- =============================================
 -- EQUIPOS (4) - Tigres con delegate_email para pruebas

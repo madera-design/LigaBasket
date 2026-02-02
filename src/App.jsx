@@ -14,6 +14,7 @@ import JugadorDetailPage from './pages/public/JugadorDetailPage'
 import JuegoDetailPage from './pages/public/JuegoDetailPage'
 import TablaPosicionesPage from './pages/public/TablaPosicionesPage'
 import EstadisticasPage from './pages/public/EstadisticasPage'
+import InscripcionPage from './pages/public/InscripcionPage'
 
 // Páginas admin
 import DashboardPage from './pages/admin/DashboardPage'
@@ -60,6 +61,8 @@ function App() {
         <Route path="/juegos/:id" element={<JuegoDetailPage />} />
         <Route path="/posiciones" element={<TablaPosicionesPage />} />
         <Route path="/estadisticas" element={<EstadisticasPage />} />
+        <Route path="/inscripcion" element={<InscripcionPage />} />
+        <Route path="/inscripcion/:torneoId" element={<InscripcionPage />} />
       </Route>
 
       {/* Login */}
