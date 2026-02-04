@@ -30,6 +30,10 @@ export const getJuegos = async (filters = {}) => {
     query = query.eq('estado', filters.estado)
   }
 
+  if (filters.categoriaId) {
+    query = query.eq('categoria_id', filters.categoriaId)
+  }
+
   if (filters.jornada) {
     query = query.eq('jornada', filters.jornada)
   }

@@ -228,7 +228,7 @@ export const getTablaPosiciones = async (temporadaId = null) => {
  * Calcula tabla de posiciones desde juegos finalizados
  * Pts: G*2 + P*1, ordenado por Pts desc, DP desc
  */
-export const calcularPosiciones = async (torneoId = null) => {
+export const calcularPosiciones = async (torneoId = null, categoriaId = null) => {
   let query = supabase
     .from('vista_calendario')
     .select('*')
@@ -238,6 +238,10 @@ export const calcularPosiciones = async (torneoId = null) => {
     query = query.eq('torneo_id', torneoId)
   } else {
     query = query.not('torneo_id', 'is', null)
+  }
+
+  if (categoriaId) {
+    query = query.eq('categoria_id', categoriaId)
   }
 
   const { data: juegos, error } = await query

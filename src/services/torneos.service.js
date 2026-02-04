@@ -161,10 +161,11 @@ export const getTorneoActivo = async () => {
 
 // ---- Torneo Equipos ----
 
-export const addTorneoEquipos = async (torneoId, equipoIds) => {
+export const addTorneoEquipos = async (torneoId, equipoIds, categoriaId = null) => {
   const rows = equipoIds.map(eqId => ({
     torneo_id: torneoId,
-    equipo_id: eqId,
+    equipo_id: typeof eqId === 'object' ? eqId.id : eqId,
+    categoria_id: typeof eqId === 'object' ? eqId.categoriaId : categoriaId,
   }))
   const { data, error } = await supabase
     .from('torneo_equipos')
@@ -177,7 +178,7 @@ export const addTorneoEquipos = async (torneoId, equipoIds) => {
 export const getTorneoEquipos = async (torneoId) => {
   const { data, error } = await supabase
     .from('torneo_equipos')
-    .select(`*, equipo:equipos(id, nombre, nombre_corto, logo_url, color_primario, activo)`)
+    .select(`*, equipo:equipos(id, nombre, nombre_corto, logo_url, color_primario, activo), categoria:torneo_categorias(id, nombre)`)
     .eq('torneo_id', torneoId)
   if (error) throw error
   return data
@@ -283,7 +284,7 @@ export const materializeInscripciones = async (torneoId) => {
       .single()
     if (eqErr) throw eqErr
 
-    equipoIds.push(equipo.id)
+    equipoIds.push({ id: equipo.id, categoriaId: insc.categoria_id || null })
 
     const jugadores = (insc.jugadores || []).map(j => ({
       equipo_id: equipo.id,
@@ -294,6 +295,8 @@ export const materializeInscripciones = async (torneoId) => {
       altura_cm: j.altura ? Math.round(j.altura * 100) : null,
       peso_kg: j.peso || null,
       foto_url: j.foto_url || null,
+      fecha_nacimiento: j.fecha_nacimiento || null,
+      sexo: j.sexo || null,
       activo: true,
     }))
 
@@ -353,6 +356,8 @@ export const materializeSingleInscripcion = async (inscripcionId) => {
     altura_cm: j.altura ? Math.round(j.altura * 100) : null,
     peso_kg: j.peso || null,
     foto_url: j.foto_url || null,
+    fecha_nacimiento: j.fecha_nacimiento || null,
+    sexo: j.sexo || null,
     activo: true,
   }))
 
@@ -371,9 +376,9 @@ export const materializeSingleInscripcion = async (inscripcionId) => {
   // Agregar al torneo
   await supabase
     .from('torneo_equipos')
-    .insert([{ torneo_id: insc.torneo_id, equipo_id: equipo.id }])
+    .insert([{ torneo_id: insc.torneo_id, equipo_id: equipo.id, categoria_id: insc.categoria_id || null }])
 
-  return { equipoId: equipo.id, torneoId: insc.torneo_id }
+  return { equipoId: equipo.id, torneoId: insc.torneo_id, categoriaId: insc.categoria_id || null }
 }
 
 // ---- Regenerar calendario (preservando juegos finalizados) ----
@@ -387,19 +392,19 @@ export const regenerateCalendar = async (torneoId) => {
     .single()
   if (tErr) throw tErr
 
-  // 2. Obtener equipos del torneo
+  // 2. Obtener equipos del torneo con categoria
   const { data: torneoEquipos, error: teErr } = await supabase
     .from('torneo_equipos')
-    .select('equipo_id')
+    .select('equipo_id, categoria_id')
     .eq('torneo_id', torneoId)
   if (teErr) throw teErr
 
-  const teamIds = torneoEquipos.map(te => te.equipo_id)
+  const hasCategorias = torneoEquipos.some(te => te.categoria_id)
 
   // 3. Obtener juegos existentes
   const { data: existingGames, error: gErr } = await supabase
     .from('juegos')
-    .select('id, equipo_local_id, equipo_visitante_id, estado, fecha, fase_juego')
+    .select('id, equipo_local_id, equipo_visitante_id, estado, fecha, fase_juego, categoria_id')
     .eq('torneo_id', torneoId)
     .in('fase_juego', ['ida', 'vuelta'])
   if (gErr) throw gErr
@@ -418,9 +423,8 @@ export const regenerateCalendar = async (torneoId) => {
     if (delErr) throw delErr
   }
 
-  // 5. Generar round-robin completo con todos los equipos
-  const { generateDoubleRoundRobin, assignDatesAndSlots } = await import('../utils/tournamentScheduler')
-  const { allRounds } = generateDoubleRoundRobin(teamIds)
+  // 5. Generar round-robin
+  const { generateDoubleRoundRobin, assignDatesAndSlots, generateMultiCategoryCalendar } = await import('../utils/tournamentScheduler')
 
   // 6. Crear set de partidos ya jugados (finalizados)
   const playedPairs = new Set()
@@ -428,12 +432,7 @@ export const regenerateCalendar = async (torneoId) => {
     playedPairs.add(`${g.equipo_local_id}_${g.equipo_visitante_id}`)
   })
 
-  // 7. Filtrar solo matchups no jugados
-  const newRounds = allRounds.map(round =>
-    round.filter(m => !playedPairs.has(`${m.home}_${m.away}`))
-  ).filter(round => round.length > 0)
-
-  // 8. Determinar fecha de inicio para nuevos juegos
+  // 7. Determinar fecha de inicio para nuevos juegos
   let startDate = torneo.fecha_inicio
   if (finalized.length > 0) {
     const lastDate = finalized.reduce((max, g) => g.fecha > max ? g.fecha : max, finalized[0].fecha)
@@ -442,15 +441,35 @@ export const regenerateCalendar = async (torneoId) => {
     startDate = nextDay.toISOString().split('T')[0]
   }
 
-  // 9. Asignar fechas y crear juegos
-  const games = assignDatesAndSlots(newRounds, {
+  const config = {
     startDate,
     gameDays: torneo.dias_juego,
     timeSlots: torneo.horarios,
     lugar: torneo.lugar,
     temporadaId: torneo.temporada_id,
     torneoId: torneo.id,
-  })
+  }
+
+  let allGamesRaw = []
+
+  if (hasCategorias) {
+    // Generar por categoria
+    const teamCategoryPairs = torneoEquipos.map(te => ({
+      equipoId: te.equipo_id,
+      categoriaId: te.categoria_id,
+    }))
+    allGamesRaw = generateMultiCategoryCalendar(teamCategoryPairs, config)
+  } else {
+    // Sin categorias: flujo original
+    const teamIds = torneoEquipos.map(te => te.equipo_id)
+    const { allRounds } = generateDoubleRoundRobin(teamIds)
+    allGamesRaw = assignDatesAndSlots(allRounds, config)
+  }
+
+  // 8. Filtrar solo matchups no jugados
+  const games = allGamesRaw.filter(g =>
+    !playedPairs.has(`${g.equipo_local_id}_${g.equipo_visitante_id}`)
+  )
 
   let newGamesCreated = 0
   if (games.length > 0) {

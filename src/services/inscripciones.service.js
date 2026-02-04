@@ -54,14 +54,31 @@ export const deleteInscripcion = async (id) => {
 
 export const getTorneosConInscripcionAbierta = async () => {
   const today = new Date().toISOString().split('T')[0]
-  const { data, error } = await supabase
+
+  // Torneos con fechas de inscripcion vigentes
+  const { data: porFecha, error: e1 } = await supabase
     .from('torneos')
     .select('*, temporada:temporadas(nombre)')
     .lte('fecha_inscripcion_inicio', today)
     .gte('fecha_inscripcion_fin', today)
     .order('fecha_inscripcion_fin', { ascending: true })
-  if (error) throw error
-  return data
+  if (e1) throw e1
+
+  // Torneos en fase inscripcion sin fechas configuradas
+  const { data: porFase, error: e2 } = await supabase
+    .from('torneos')
+    .select('*, temporada:temporadas(nombre)')
+    .eq('fase', 'inscripcion')
+    .is('fecha_inscripcion_inicio', null)
+  if (e2) throw e2
+
+  // Combinar sin duplicados
+  const ids = new Set(porFecha.map(t => t.id))
+  const combinados = [...porFecha]
+  for (const t of porFase) {
+    if (!ids.has(t.id)) combinados.push(t)
+  }
+  return combinados
 }
 
 export const getTorneoParaInscripcion = async (torneoId) => {

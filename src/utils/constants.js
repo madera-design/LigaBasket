@@ -83,6 +83,25 @@ export const DIAS_SEMANA = [
   { value: 6, label: 'Sabado', abbr: 'Sab' },
 ]
 
+// Generos de categoria
+export const GENEROS_CATEGORIA = [
+  { value: 'cualquiera', label: 'Cualquiera' },
+  { value: 'varonil', label: 'Solo Hombres' },
+  { value: 'femenil', label: 'Solo Mujeres' },
+  { value: 'mixto', label: 'Mixto' },
+]
+
+// Categorias predefinidas para torneos (con reglas por defecto)
+export const CATEGORIAS_PREDEFINIDAS = [
+  { nombre: 'Libre Varonil', genero: 'varonil', anio_min: null, anio_max: null, min_mujeres: 0, descripcion: 'Todas las edades, solo hombres' },
+  { nombre: 'Libre Femenil', genero: 'femenil', anio_min: null, anio_max: null, min_mujeres: 0, descripcion: 'Todas las edades, solo mujeres' },
+  { nombre: 'Libre Mixto', genero: 'mixto', anio_min: null, anio_max: null, min_mujeres: 2, descripcion: 'Todas las edades, min. 2 mujeres' },
+  { nombre: 'U17', genero: 'cualquiera', anio_min: 2008, anio_max: 2010, min_mujeres: 0, descripcion: 'Nacidos 2008-2010' },
+  { nombre: 'U15', genero: 'cualquiera', anio_min: 2010, anio_max: 2012, min_mujeres: 0, descripcion: 'Nacidos 2010-2012' },
+  { nombre: 'U13', genero: 'cualquiera', anio_min: 2012, anio_max: 2014, min_mujeres: 0, descripcion: 'Nacidos 2012-2014' },
+  { nombre: 'Veteranos', genero: 'varonil', anio_min: null, anio_max: 1989, min_mujeres: 0, descripcion: '+35 años, solo hombres' },
+]
+
 // Límites y validaciones
 export const LIMITS = {
   MIN_PLAYERS_PER_TEAM: 5,

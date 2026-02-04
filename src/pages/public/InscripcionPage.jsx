@@ -2,13 +2,15 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { Trophy, MapPin, Calendar, FileText, Users, Plus, Trash2, CheckCircle, Award, Clock, Upload, Image, X, ChevronRight, ChevronLeft } from 'lucide-react'
 import { getTorneosConInscripcionAbierta, getTorneoParaInscripcion, createInscripcion, uploadInscripcionLogo, uploadInscripcionJugadorFoto } from '../../services/inscripciones.service'
+import { getCategoriasByTorneo } from '../../services/categorias.service'
 import { POSICIONES } from '../../utils/constants'
 import { isValidEmail, isValidPhone, validateInscripcionJugadores } from '../../utils/validators'
 import toast from 'react-hot-toast'
 
 const emptyPlayer = () => ({
   nombre: '', apellido: '', numero: '', posicion: 'Base',
-  altura: '', peso: '', foto_file: null, foto_preview: null,
+  altura: '', peso: '', fecha_nacimiento: '', sexo: '',
+  foto_file: null, foto_preview: null,
 })
 
 export default function InscripcionPage() {
@@ -22,6 +24,7 @@ export default function InscripcionPage() {
 
 function TorneosAbiertos() {
   const [torneos, setTorneos] = useState([])
+  const [categoriasMap, setCategoriasMap] = useState({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -29,6 +32,15 @@ function TorneosAbiertos() {
       try {
         const data = await getTorneosConInscripcionAbierta()
         setTorneos(data)
+        // Cargar categorías de cada torneo
+        const catsMap = {}
+        await Promise.all(data.map(async (t) => {
+          try {
+            const cats = await getCategoriasByTorneo(t.id)
+            if (cats?.length > 0) catsMap[t.id] = cats
+          } catch { /* ignore */ }
+        }))
+        setCategoriasMap(catsMap)
       } catch {
         toast.error('Error al cargar torneos')
       } finally {
@@ -63,6 +75,16 @@ function TorneosAbiertos() {
 
                 {torneo.descripcion && (
                   <p className="text-sm text-gray-600 mb-4">{torneo.descripcion}</p>
+                )}
+
+                {categoriasMap[torneo.id]?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {categoriasMap[torneo.id].map(cat => (
+                      <span key={cat.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        {cat.nombre}
+                      </span>
+                    ))}
+                  </div>
                 )}
 
                 <div className="space-y-2 text-sm text-gray-500 mb-4">
@@ -145,12 +167,14 @@ function InscripcionForm({ torneoId }) {
   const [saving, setSaving] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [step, setStep] = useState(0) // 0: equipo, 1: delegado, 2: jugadores
+  const [categorias, setCategorias] = useState([])
 
   const [formData, setFormData] = useState({
     nombre_equipo: '',
     nombre_corto: '',
     color_primario: '#f97316',
     color_secundario: '#ffffff',
+    categoria_id: '',
     delegado_nombre: '',
     delegado_email: '',
     delegado_telefono: '',
@@ -168,8 +192,12 @@ function InscripcionForm({ torneoId }) {
   useEffect(() => {
     const fetch = async () => {
       try {
-        const data = await getTorneoParaInscripcion(torneoId)
+        const [data, cats] = await Promise.all([
+          getTorneoParaInscripcion(torneoId),
+          getCategoriasByTorneo(torneoId),
+        ])
         setTorneo(data)
+        setCategorias(cats || [])
       } catch {
         toast.error('Torneo no encontrado')
       } finally {
@@ -239,10 +267,14 @@ function InscripcionForm({ torneoId }) {
     updatePlayer(index, 'foto_preview', null)
   }
 
+  // Categoria seleccionada (con reglas)
+  const categoriaSeleccionada = categorias.find(c => c.id === formData.categoria_id) || null
+
   // --- Step validation ---
   const validateStep = (s) => {
     if (s === 0) {
       if (!formData.nombre_equipo.trim()) { toast.error('El nombre del equipo es requerido'); return false }
+      if (categorias.length > 0 && !formData.categoria_id) { toast.error('Debes seleccionar una categoría'); return false }
       return true
     }
     if (s === 1) {
@@ -251,6 +283,62 @@ function InscripcionForm({ torneoId }) {
       if (formData.delegado_telefono && !isValidPhone(formData.delegado_telefono)) { toast.error('Telefono invalido'); return false }
       return true
     }
+    return true
+  }
+
+  // Validacion de reglas de categoria (se ejecuta al enviar)
+  const validateCategoriaRules = () => {
+    const cat = categoriaSeleccionada
+    if (!cat) return true
+
+    const validJugadores = jugadores.filter(j => j.nombre.trim() && j.apellido.trim())
+
+    // Validar genero
+    if (cat.genero === 'varonil' || cat.genero === 'femenil' || cat.genero === 'mixto') {
+      for (const j of validJugadores) {
+        if (!j.sexo) {
+          toast.error(`El sexo es requerido para todos los jugadores en categoria ${cat.nombre}`)
+          return false
+        }
+        if (cat.genero === 'varonil' && j.sexo !== 'M') {
+          toast.error(`${j.nombre} ${j.apellido}: la categoria ${cat.nombre} es solo para hombres`)
+          return false
+        }
+        if (cat.genero === 'femenil' && j.sexo !== 'F') {
+          toast.error(`${j.nombre} ${j.apellido}: la categoria ${cat.nombre} es solo para mujeres`)
+          return false
+        }
+      }
+    }
+
+    // Validar min mujeres (mixto)
+    if (cat.genero === 'mixto' && cat.min_mujeres > 0) {
+      const mujeres = validJugadores.filter(j => j.sexo === 'F').length
+      if (mujeres < cat.min_mujeres) {
+        toast.error(`La categoria ${cat.nombre} requiere al menos ${cat.min_mujeres} mujeres en el equipo (tienes ${mujeres})`)
+        return false
+      }
+    }
+
+    // Validar rango de edad
+    if (cat.anio_nacimiento_min || cat.anio_nacimiento_max) {
+      for (const j of validJugadores) {
+        if (!j.fecha_nacimiento) {
+          toast.error(`La fecha de nacimiento es requerida para todos los jugadores en categoria ${cat.nombre}`)
+          return false
+        }
+        const anio = new Date(j.fecha_nacimiento).getFullYear()
+        if (cat.anio_nacimiento_min && anio < cat.anio_nacimiento_min) {
+          toast.error(`${j.nombre} ${j.apellido}: año de nacimiento ${anio} es menor al minimo permitido (${cat.anio_nacimiento_min})`)
+          return false
+        }
+        if (cat.anio_nacimiento_max && anio > cat.anio_nacimiento_max) {
+          toast.error(`${j.nombre} ${j.apellido}: año de nacimiento ${anio} es mayor al maximo permitido (${cat.anio_nacimiento_max})`)
+          return false
+        }
+      }
+    }
+
     return true
   }
 
@@ -273,6 +361,8 @@ function InscripcionForm({ torneoId }) {
       posicion: j.posicion,
       altura: j.altura ? parseFloat(j.altura) : null,
       peso: j.peso ? parseFloat(j.peso) : null,
+      fecha_nacimiento: j.fecha_nacimiento || null,
+      sexo: j.sexo || null,
     }))
 
     const { valid, errors } = validateInscripcionJugadores(jugadoresData)
@@ -280,6 +370,8 @@ function InscripcionForm({ torneoId }) {
       toast.error(errors[0])
       return
     }
+
+    if (!validateCategoriaRules()) return
 
     setSaving(true)
     try {
@@ -290,6 +382,7 @@ function InscripcionForm({ torneoId }) {
         nombre_corto: formData.nombre_corto.trim().toUpperCase() || null,
         color_primario: formData.color_primario,
         color_secundario: formData.color_secundario,
+        categoria_id: formData.categoria_id || null,
         delegado_nombre: formData.delegado_nombre.trim(),
         delegado_email: formData.delegado_email.trim(),
         delegado_telefono: formData.delegado_telefono.trim() || null,
@@ -425,6 +518,45 @@ function InscripcionForm({ torneoId }) {
             <FileText size={14} /> Descargar reglamento
           </a>
         )}
+
+        {/* Categorias del torneo con reglas */}
+        {categorias.length > 0 && (
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <p className="text-xs font-medium text-gray-500 uppercase mb-2">Categorías disponibles</p>
+            <div className="space-y-2">
+              {categorias.map(cat => (
+                <div key={cat.id} className="bg-gray-50 rounded-lg px-4 py-2.5 text-sm">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-gray-900">{cat.nombre}</span>
+                    {cat.genero && cat.genero !== 'cualquiera' && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        cat.genero === 'varonil' ? 'bg-blue-100 text-blue-700' :
+                        cat.genero === 'femenil' ? 'bg-pink-100 text-pink-700' :
+                        'bg-purple-100 text-purple-700'
+                      }`}>
+                        {cat.genero === 'varonil' && 'Solo hombres'}
+                        {cat.genero === 'femenil' && 'Solo mujeres'}
+                        {cat.genero === 'mixto' && `Mixto${cat.min_mujeres ? ` (min. ${cat.min_mujeres} mujeres)` : ''}`}
+                      </span>
+                    )}
+                    {(cat.anio_nacimiento_min || cat.anio_nacimiento_max) && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                        Nacidos{' '}
+                        {cat.anio_nacimiento_min && cat.anio_nacimiento_max
+                          ? `${cat.anio_nacimiento_min}–${cat.anio_nacimiento_max}`
+                          : cat.anio_nacimiento_min
+                            ? `desde ${cat.anio_nacimiento_min}`
+                            : `hasta ${cat.anio_nacimiento_max}`
+                        }
+                      </span>
+                    )}
+                  </div>
+                  {cat.descripcion && <p className="text-xs text-gray-500 mt-1">{cat.descripcion}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Step indicator */}
@@ -513,6 +645,51 @@ function InscripcionForm({ torneoId }) {
                 </div>
               </div>
             </div>
+
+            {/* Categoría */}
+            {categorias.length > 0 && (
+              <div>
+                <label className="label">Categoría *</label>
+                <select
+                  value={formData.categoria_id}
+                  onChange={(e) => setFormData({ ...formData, categoria_id: e.target.value })}
+                  className="select"
+                >
+                  <option value="">Selecciona una categoría</option>
+                  {categorias.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.nombre}{cat.descripcion ? ` — ${cat.descripcion}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {/* Banner de reglas de la categoría seleccionada */}
+                {categoriaSeleccionada && (
+                  <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 space-y-1">
+                    {categoriaSeleccionada.descripcion && (
+                      <p>{categoriaSeleccionada.descripcion}</p>
+                    )}
+                    {categoriaSeleccionada.genero && categoriaSeleccionada.genero !== 'cualquiera' && (
+                      <p>
+                        {categoriaSeleccionada.genero === 'varonil' && 'Solo hombres'}
+                        {categoriaSeleccionada.genero === 'femenil' && 'Solo mujeres'}
+                        {categoriaSeleccionada.genero === 'mixto' && `Mixto${categoriaSeleccionada.min_mujeres ? ` (min. ${categoriaSeleccionada.min_mujeres} mujeres)` : ''}`}
+                      </p>
+                    )}
+                    {(categoriaSeleccionada.anio_nacimiento_min || categoriaSeleccionada.anio_nacimiento_max) && (
+                      <p>
+                        Nacidos{' '}
+                        {categoriaSeleccionada.anio_nacimiento_min && categoriaSeleccionada.anio_nacimiento_max
+                          ? `entre ${categoriaSeleccionada.anio_nacimiento_min} y ${categoriaSeleccionada.anio_nacimiento_max}`
+                          : categoriaSeleccionada.anio_nacimiento_min
+                            ? `desde ${categoriaSeleccionada.anio_nacimiento_min}`
+                            : `hasta ${categoriaSeleccionada.anio_nacimiento_max}`
+                        }
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Preview */}
             <div className="p-4 bg-gray-50 rounded-lg">
@@ -658,6 +835,21 @@ function InscripcionForm({ torneoId }) {
                         value={jugador.peso}
                         onChange={(e) => updatePlayer(index, 'peso', e.target.value)}
                         className="input text-sm" />
+                      <input type="date" placeholder="Fecha nac."
+                        value={jugador.fecha_nacimiento}
+                        onChange={(e) => updatePlayer(index, 'fecha_nacimiento', e.target.value)}
+                        className="input text-sm"
+                        title="Fecha de nacimiento" />
+                      <select
+                        value={jugador.sexo}
+                        onChange={(e) => updatePlayer(index, 'sexo', e.target.value)}
+                        className="select text-sm"
+                        title="Sexo"
+                      >
+                        <option value="">Sexo</option>
+                        <option value="M">Masculino</option>
+                        <option value="F">Femenino</option>
+                      </select>
                     </div>
                   </div>
                 </div>

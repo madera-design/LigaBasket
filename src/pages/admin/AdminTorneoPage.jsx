@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Trophy, Calendar, Users, X, ChevronRight, ChevronLeft, Clock, MapPin, Check, FileText, Award } from 'lucide-react'
+import { Plus, Trophy, Calendar, Users, X, ChevronRight, ChevronLeft, Clock, MapPin, Check, FileText, Award, Tag } from 'lucide-react'
 import { getEquipos } from '../../services/equipos.service'
 import {
   createTemporada,
@@ -16,8 +16,11 @@ import {
   generateDoubleRoundRobin,
   assignDatesAndSlots,
   calculateTournamentStats,
+  generateMultiCategoryCalendar,
+  calculateMultiCategoryStats,
 } from '../../utils/tournamentScheduler'
-import { DIAS_SEMANA, FASES_TORNEO } from '../../utils/constants'
+import { DIAS_SEMANA, FASES_TORNEO, CATEGORIAS_PREDEFINIDAS, GENEROS_CATEGORIA } from '../../utils/constants'
+import { createCategoriasBulk } from '../../services/categorias.service'
 import ConfirmModal from '../../components/ConfirmModal'
 import toast from 'react-hot-toast'
 
@@ -256,8 +259,15 @@ function TorneoWizard({ onClose, onComplete }) {
   const [horarios, setHorarios] = useState(['20:00'])
   const [nuevoHorario, setNuevoHorario] = useState('21:00')
 
+  // Categorias
+  const [usaCategorias, setUsaCategorias] = useState(false)
+  const [categorias, setCategorias] = useState([])
+  const [nuevaCategoria, setNuevaCategoria] = useState('')
+
   // Step 3 - Equipos (solo modo manual)
   const [equiposSeleccionados, setEquiposSeleccionados] = useState([])
+  const [equiposPorCategoria, setEquiposPorCategoria] = useState({})
+  const [categoriaActiva, setCategoriaActiva] = useState(null)
 
   const wizardSteps = modoCreacion === 'inscripcion' ? STEPS_INSCRIPCION : STEPS_MANUAL
   const lastStep = wizardSteps.length - 1
@@ -276,16 +286,70 @@ function TorneoWizard({ onClose, onComplete }) {
     fetchEquipos()
   }, [])
 
+  const addCategoria = (catObjOrName) => {
+    let catObj
+    if (typeof catObjOrName === 'object' && catObjOrName !== null) {
+      catObj = catObjOrName
+    } else {
+      const name = (catObjOrName || nuevaCategoria).trim()
+      if (!name) return
+      catObj = { nombre: name, descripcion: '', genero: 'cualquiera', anio_min: null, anio_max: null, min_mujeres: 0 }
+    }
+    if (categorias.find(c => c.nombre === catObj.nombre)) return
+    setCategorias(prev => [...prev, catObj])
+    setNuevaCategoria('')
+    if (!categoriaActiva) setCategoriaActiva(catObj.nombre)
+  }
+
+  const removeCategoria = (nombre) => {
+    setCategorias(prev => prev.filter(c => c.nombre !== nombre))
+    setEquiposPorCategoria(prev => {
+      const next = { ...prev }
+      delete next[nombre]
+      return next
+    })
+    if (categoriaActiva === nombre) {
+      setCategoriaActiva(categorias.find(c => c.nombre !== nombre)?.nombre || null)
+    }
+  }
+
+  const updateCategoriaField = (nombre, field, value) => {
+    setCategorias(prev => prev.map(c => c.nombre === nombre ? { ...c, [field]: value } : c))
+  }
+
+  const toggleEquipoCategoria = (eqId) => {
+    if (!categoriaActiva) return
+    setEquiposPorCategoria(prev => {
+      const current = prev[categoriaActiva] || []
+      const updated = current.includes(eqId) ? current.filter(id => id !== eqId) : [...current, eqId]
+      return { ...prev, [categoriaActiva]: updated }
+    })
+  }
+
+  const getTotalEquiposPorCategoria = () => {
+    return Object.values(equiposPorCategoria).reduce((sum, arr) => sum + arr.length, 0)
+  }
+
+  const getEquiposAsignados = () => {
+    return new Set(Object.values(equiposPorCategoria).flat())
+  }
+
   const canNext = () => {
     if (step === 0) {
       const baseValid = nombre.trim() && fechaInicio
+      if (usaCategorias && categorias.length === 0) return false
       if (modoCreacion === 'inscripcion') {
         return baseValid && fechaInscInicio && fechaInscFin && fechaInscFin >= fechaInscInicio
       }
       return baseValid
     }
     if (step === 1) return diasJuego.length > 0 && horarios.length > 0
-    if (modoCreacion === 'manual' && step === 2) return equiposSeleccionados.length >= 3
+    if (modoCreacion === 'manual' && step === 2) {
+      if (usaCategorias) {
+        return categorias.every(cat => (equiposPorCategoria[cat.nombre] || []).length >= 2) && getTotalEquiposPorCategoria() >= 3
+      }
+      return equiposSeleccionados.length >= 3
+    }
     return true
   }
 
@@ -312,7 +376,12 @@ function TorneoWizard({ onClose, onComplete }) {
   }
 
   const previewStats = (modoCreacion === 'manual' && step === lastStep)
-    ? calculateTournamentStats(equiposSeleccionados.length, diasJuego, horarios, fechaInicio)
+    ? usaCategorias
+      ? calculateMultiCategoryStats(
+          Object.fromEntries(categorias.map(c => [c.nombre, (equiposPorCategoria[c.nombre] || []).length])),
+          diasJuego, horarios, fechaInicio
+        )
+      : calculateTournamentStats(equiposSeleccionados.length, diasJuego, horarios, fechaInicio)
     : null
 
   const handleGenerate = async () => {
@@ -350,10 +419,25 @@ function TorneoWizard({ onClose, onComplete }) {
           await uploadReglamento(torneo.id, reglamentoFile)
         }
 
+        // Crear categorias si aplica
+        if (usaCategorias && categorias.length > 0) {
+          const categoriasData = categorias.map((cat, i) => ({
+            torneo_id: torneo.id,
+            nombre: cat.nombre,
+            orden: i,
+            descripcion: cat.descripcion || null,
+            genero: cat.genero || 'cualquiera',
+            anio_nacimiento_min: cat.anio_min || null,
+            anio_nacimiento_max: cat.anio_max || null,
+            min_mujeres: cat.min_mujeres || 0,
+          }))
+          await createCategoriasBulk(categoriasData)
+        }
+
         toast.success('Torneo creado. Las inscripciones estan abiertas.')
         onComplete()
       } else {
-        // Modo manual: flujo existente
+        // Modo manual
         torneoData.fase = 'regular'
 
         const torneo = await createTorneo(torneoData)
@@ -362,21 +446,66 @@ function TorneoWizard({ onClose, onComplete }) {
           await uploadReglamento(torneo.id, reglamentoFile)
         }
 
-        await addTorneoEquipos(torneo.id, equiposSeleccionados)
+        if (usaCategorias && categorias.length > 0) {
+          // Crear categorias en BD
+          const categoriasData = categorias.map((cat, i) => ({
+            torneo_id: torneo.id,
+            nombre: cat.nombre,
+            orden: i,
+            descripcion: cat.descripcion || null,
+            genero: cat.genero || 'cualquiera',
+            anio_nacimiento_min: cat.anio_min || null,
+            anio_nacimiento_max: cat.anio_max || null,
+            min_mujeres: cat.min_mujeres || 0,
+          }))
+          const createdCats = await createCategoriasBulk(categoriasData)
+          const catMap = {}
+          createdCats.forEach(c => { catMap[c.nombre] = c.id })
 
-        const { allRounds } = generateDoubleRoundRobin(equiposSeleccionados)
-        const games = assignDatesAndSlots(allRounds, {
-          startDate: fechaInicio,
-          gameDays: diasJuego,
-          timeSlots: horarios,
-          lugar: lugar || null,
-          temporadaId: temporada.id,
-          torneoId: torneo.id,
-        })
+          // Agregar equipos con categoria
+          const equiposConCat = []
+          for (const cat of categorias) {
+            const ids = equiposPorCategoria[cat.nombre] || []
+            ids.forEach(eqId => {
+              equiposConCat.push({ id: eqId, categoriaId: catMap[cat.nombre] })
+            })
+          }
+          await addTorneoEquipos(torneo.id, equiposConCat)
 
-        await createJuegosBulk(games)
+          // Generar calendario multi-categoria
+          const teamCategoryPairs = equiposConCat.map(eq => ({
+            equipoId: eq.id,
+            categoriaId: eq.categoriaId,
+          }))
+          const games = generateMultiCategoryCalendar(teamCategoryPairs, {
+            startDate: fechaInicio,
+            gameDays: diasJuego,
+            timeSlots: horarios,
+            lugar: lugar || null,
+            temporadaId: temporada.id,
+            torneoId: torneo.id,
+          })
 
-        toast.success(`Torneo creado con ${games.length} juegos`)
+          await createJuegosBulk(games)
+          toast.success(`Torneo creado con ${games.length} juegos en ${categorias.length} categorias`)
+        } else {
+          // Sin categorias: flujo original
+          await addTorneoEquipos(torneo.id, equiposSeleccionados)
+
+          const { allRounds } = generateDoubleRoundRobin(equiposSeleccionados)
+          const games = assignDatesAndSlots(allRounds, {
+            startDate: fechaInicio,
+            gameDays: diasJuego,
+            timeSlots: horarios,
+            lugar: lugar || null,
+            temporadaId: temporada.id,
+            torneoId: torneo.id,
+          })
+
+          await createJuegosBulk(games)
+          toast.success(`Torneo creado con ${games.length} juegos`)
+        }
+
         onComplete()
       }
     } catch (error) {
@@ -456,6 +585,9 @@ function TorneoWizard({ onClose, onComplete }) {
               modoCreacion={modoCreacion} setModoCreacion={setModoCreacion}
               fechaInscInicio={fechaInscInicio} setFechaInscInicio={setFechaInscInicio}
               fechaInscFin={fechaInscFin} setFechaInscFin={setFechaInscFin}
+              usaCategorias={usaCategorias} setUsaCategorias={setUsaCategorias}
+              categorias={categorias} addCategoria={addCategoria} removeCategoria={removeCategoria} updateCategoriaField={updateCategoriaField}
+              nuevaCategoria={nuevaCategoria} setNuevaCategoria={setNuevaCategoria}
             />
           )}
           {contentStep === 1 && (
@@ -471,6 +603,13 @@ function TorneoWizard({ onClose, onComplete }) {
               loading={loadingEquipos}
               seleccionados={equiposSeleccionados}
               toggle={toggleEquipo}
+              usaCategorias={usaCategorias}
+              categorias={categorias}
+              equiposPorCategoria={equiposPorCategoria}
+              toggleEquipoCategoria={toggleEquipoCategoria}
+              categoriaActiva={categoriaActiva}
+              setCategoriaActiva={setCategoriaActiva}
+              equiposAsignados={getEquiposAsignados()}
             />
           )}
           {((contentStep === 3 && modoCreacion === 'manual') || contentStep === 'preview-inscripcion') && (
@@ -482,12 +621,20 @@ function TorneoWizard({ onClose, onComplete }) {
               premio1={premio1} premio2={premio2} premio3={premio3}
               diasJuego={diasJuego}
               horarios={horarios}
-              equipos={modoCreacion === 'manual' ? equiposDisponibles.filter(e => equiposSeleccionados.includes(e.id)) : []}
+              equipos={modoCreacion === 'manual'
+                ? usaCategorias
+                  ? equiposDisponibles.filter(e => getEquiposAsignados().has(e.id))
+                  : equiposDisponibles.filter(e => equiposSeleccionados.includes(e.id))
+                : []}
               stats={previewStats}
               modoCreacion={modoCreacion}
               fechaInscInicio={fechaInscInicio}
               fechaInscFin={fechaInscFin}
               reglamentoFile={reglamentoFile}
+              usaCategorias={usaCategorias}
+              categorias={categorias}
+              equiposPorCategoria={equiposPorCategoria}
+              equiposDisponibles={equiposDisponibles}
             />
           )}
         </div>
@@ -549,6 +696,9 @@ function StepInfo({
   reglamentoFile, setReglamentoFile,
   modoCreacion, setModoCreacion,
   fechaInscInicio, setFechaInscInicio, fechaInscFin, setFechaInscFin,
+  usaCategorias, setUsaCategorias,
+  categorias, addCategoria, removeCategoria, updateCategoriaField,
+  nuevaCategoria, setNuevaCategoria,
 }) {
   return (
     <div className="space-y-4">
@@ -616,6 +766,167 @@ function StepInfo({
           </div>
         </div>
       )}
+
+      {/* Categorias */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          <Tag size={14} className="inline mr-1" />
+          Categorias
+        </label>
+        <div className="flex items-center gap-3 mb-3">
+          <button
+            type="button"
+            onClick={() => setUsaCategorias(false)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              !usaCategorias ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Sin categorias
+          </button>
+          <button
+            type="button"
+            onClick={() => setUsaCategorias(true)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              usaCategorias ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Con categorias
+          </button>
+        </div>
+        {usaCategorias && (
+          <div className="space-y-3 bg-gray-50 rounded-xl p-4">
+            {/* Chips de categorias agregadas */}
+            {categorias.length > 0 && (
+              <div className="space-y-3">
+                {categorias.map(cat => (
+                  <div key={cat.nombre} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm text-gray-900">{cat.nombre}</span>
+                      <button type="button" onClick={() => removeCategoria(cat.nombre)} className="text-red-400 hover:text-red-600">
+                        <X size={16} />
+                      </button>
+                    </div>
+                    {/* Descripcion */}
+                    <input
+                      type="text"
+                      value={cat.descripcion || ''}
+                      onChange={(e) => updateCategoriaField(cat.nombre, 'descripcion', e.target.value)}
+                      placeholder="Descripcion (opcional)"
+                      className="input text-xs w-full"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Genero */}
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-0.5">Genero</label>
+                        <select
+                          value={cat.genero || 'cualquiera'}
+                          onChange={(e) => updateCategoriaField(cat.nombre, 'genero', e.target.value)}
+                          className="input text-xs w-full"
+                        >
+                          {GENEROS_CATEGORIA.map(g => (
+                            <option key={g.value} value={g.value}>{g.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* Min mujeres (solo si mixto) */}
+                      {cat.genero === 'mixto' && (
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-0.5">Min. mujeres</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={cat.min_mujeres || 0}
+                            onChange={(e) => updateCategoriaField(cat.nombre, 'min_mujeres', parseInt(e.target.value) || 0)}
+                            className="input text-xs w-full"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {/* Rango de edad */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!cat.anio_min && !cat.anio_max}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              updateCategoriaField(cat.nombre, 'anio_min', null)
+                              updateCategoriaField(cat.nombre, 'anio_max', null)
+                            } else {
+                              updateCategoriaField(cat.nombre, 'anio_min', 2008)
+                              updateCategoriaField(cat.nombre, 'anio_max', 2010)
+                            }
+                          }}
+                          className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                        />
+                        <span className="text-xs text-gray-600">Libre (todas las edades)</span>
+                      </label>
+                      {(cat.anio_min || cat.anio_max) && (
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-0.5">Año nacimiento desde</label>
+                            <input
+                              type="number"
+                              min="1950"
+                              max="2030"
+                              value={cat.anio_min || ''}
+                              onChange={(e) => updateCategoriaField(cat.nombre, 'anio_min', e.target.value ? parseInt(e.target.value) : null)}
+                              placeholder="Ej: 2008"
+                              className="input text-xs w-full"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-0.5">Año nacimiento hasta</label>
+                            <input
+                              type="number"
+                              min="1950"
+                              max="2030"
+                              value={cat.anio_max || ''}
+                              onChange={(e) => updateCategoriaField(cat.nombre, 'anio_max', e.target.value ? parseInt(e.target.value) : null)}
+                              placeholder="Ej: 2010"
+                              className="input text-xs w-full"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Input + boton para agregar */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={nuevaCategoria}
+                onChange={(e) => setNuevaCategoria(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCategoria() } }}
+                placeholder="Nombre de categoria"
+                className="input flex-1 text-sm"
+              />
+              <button type="button" onClick={addCategoria} className="btn-primary px-3" disabled={!nuevaCategoria.trim()}>
+                <Plus size={16} />
+              </button>
+            </div>
+            {/* Sugerencias */}
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Sugerencias:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {CATEGORIAS_PREDEFINIDAS.filter(c => !categorias.find(cat => cat.nombre === c.nombre)).map(sug => (
+                  <button
+                    key={sug.nombre}
+                    type="button"
+                    onClick={() => addCategoria(sug)}
+                    className="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-600 hover:border-primary-300 hover:text-primary-600 transition-colors"
+                  >
+                    + {sug.nombre}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Premios */}
       <div>
@@ -719,11 +1030,98 @@ function StepHorarios({ diasJuego, toggleDia, horarios, addHorario, removeHorari
   )
 }
 
-function StepEquipos({ equipos, loading, seleccionados, toggle }) {
+function StepEquipos({ equipos, loading, seleccionados, toggle, usaCategorias, categorias, equiposPorCategoria, toggleEquipoCategoria, categoriaActiva, setCategoriaActiva, equiposAsignados }) {
   if (loading) {
     return <div className="flex justify-center py-8"><div className="spinner w-8 h-8"></div></div>
   }
 
+  if (usaCategorias && categorias.length > 0) {
+    const currentCatEquipos = equiposPorCategoria[categoriaActiva] || []
+    // Equipos asignados a OTRAS categorias
+    const asignadosOtras = new Set()
+    Object.entries(equiposPorCategoria).forEach(([cat, ids]) => {
+      if (cat !== categoriaActiva) ids.forEach(id => asignadosOtras.add(id))
+    })
+
+    return (
+      <div>
+        {/* Category tabs */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {categorias.map(cat => {
+            const count = (equiposPorCategoria[cat.nombre] || []).length
+            const isActive = cat.nombre === categoriaActiva
+            return (
+              <button
+                key={cat.nombre}
+                type="button"
+                onClick={() => setCategoriaActiva(cat.nombre)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {cat.nombre} ({count})
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="flex items-center justify-between mb-3">
+          <label className="text-sm font-medium text-gray-700">
+            Equipos para <span className="text-primary-600">{categoriaActiva}</span> (min. 2)
+          </label>
+          <span className={`text-sm font-bold ${currentCatEquipos.length >= 2 ? 'text-green-600' : 'text-gray-400'}`}>
+            {currentCatEquipos.length} seleccionados
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-80 overflow-y-auto">
+          {equipos.map(equipo => {
+            const selected = currentCatEquipos.includes(equipo.id)
+            const disabledByOther = asignadosOtras.has(equipo.id)
+            return (
+              <button
+                key={equipo.id}
+                type="button"
+                onClick={() => !disabledByOther && toggleEquipoCategoria(equipo.id)}
+                disabled={disabledByOther}
+                className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+                  selected ? 'border-primary-500 bg-primary-50'
+                  : disabledByOther ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
+                  : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}
+              >
+                {equipo.logo_url ? (
+                  <img src={equipo.logo_url} alt={equipo.nombre} className="w-10 h-10 rounded-full object-contain" />
+                ) : (
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                    style={{ backgroundColor: equipo.color_primario || '#6B7280' }}
+                  >
+                    {(equipo.nombre_corto || equipo.nombre || '').substring(0, 3).toUpperCase()}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 text-sm truncate">{equipo.nombre}</p>
+                  <p className="text-xs text-gray-500">
+                    {disabledByOther
+                      ? `Asignado a otra categoria`
+                      : equipo.nombre_corto}
+                  </p>
+                </div>
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                  selected ? 'border-primary-500 bg-primary-500' : 'border-gray-300'
+                }`}>
+                  {selected && <Check size={12} className="text-white" />}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // Modo sin categorias
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -781,6 +1179,7 @@ function StepPreview({
   premio1, premio2, premio3,
   diasJuego, horarios, equipos, stats,
   modoCreacion, fechaInscInicio, fechaInscFin, reglamentoFile,
+  usaCategorias, categorias, equiposPorCategoria, equiposDisponibles,
 }) {
   const diasLabels = diasJuego.map(d => DIAS_SEMANA.find(dia => dia.value === d)?.abbr).join(', ')
 
@@ -847,6 +1246,33 @@ function StepPreview({
             </div>
           </div>
 
+          {/* Categorias en modo inscripcion */}
+          {usaCategorias && categorias?.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Categorías ({categorias.length})</h4>
+              <div className="space-y-2">
+                {categorias.map(cat => (
+                  <div key={cat.nombre} className="bg-gray-50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-gray-700">{cat.nombre}</span>
+                      {cat.genero && cat.genero !== 'cualquiera' && (
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cat.genero === 'varonil' ? 'bg-blue-100 text-blue-700' : cat.genero === 'femenil' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'}`}>
+                          {cat.genero === 'varonil' ? 'Solo Hombres' : cat.genero === 'femenil' ? 'Solo Mujeres' : `Mixto (min. ${cat.min_mujeres || 0} mujeres)`}
+                        </span>
+                      )}
+                      {(cat.anio_min || cat.anio_max) && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                          {cat.anio_min && cat.anio_max ? `Nacidos ${cat.anio_min}–${cat.anio_max}` : cat.anio_min ? `Desde ${cat.anio_min}` : `Hasta ${cat.anio_max}`}
+                        </span>
+                      )}
+                    </div>
+                    {cat.descripcion && <p className="text-xs text-gray-500 mt-1">{cat.descripcion}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <p className="text-sm text-blue-800">
               Se creara el torneo en fase de <strong>inscripcion</strong>. Los equipos podran inscribirse en la pagina publica. Una vez cerradas las inscripciones, podras revisar, aprobar equipos e iniciar el torneo desde el detalle del torneo.
@@ -861,7 +1287,7 @@ function StepPreview({
               <p className="text-xs text-blue-600 font-medium">Juegos totales</p>
             </div>
             <div className="bg-green-50 rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-green-700">{stats?.totalRounds || 0}</p>
+              <p className="text-2xl font-bold text-green-700">{stats?.totalRounds || stats?.perCategory?.[0]?.stats?.totalRounds || 0}</p>
               <p className="text-xs text-green-600 font-medium">Jornadas</p>
             </div>
             <div className="bg-orange-50 rounded-xl p-4 text-center">
@@ -878,6 +1304,41 @@ function StepPreview({
             </div>
           </div>
 
+          {/* Desglose por categoria */}
+          {usaCategorias && stats?.perCategory && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Desglose por categoria</h4>
+              <div className="space-y-2">
+                {stats.perCategory.map(pc => {
+                  const cat = categorias.find(c => c.nombre === pc.name)
+                  return (
+                    <div key={pc.name} className="bg-gray-50 rounded-lg p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-gray-700">{pc.name}</span>
+                          {cat?.genero && cat.genero !== 'cualquiera' && (
+                            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cat.genero === 'varonil' ? 'bg-blue-100 text-blue-700' : cat.genero === 'femenil' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'}`}>
+                              {cat.genero === 'varonil' ? 'Solo Hombres' : cat.genero === 'femenil' ? 'Solo Mujeres' : `Mixto (min. ${cat.min_mujeres || 0} mujeres)`}
+                            </span>
+                          )}
+                          {(cat?.anio_min || cat?.anio_max) && (
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                              {cat.anio_min && cat.anio_max ? `Nacidos ${cat.anio_min}–${cat.anio_max}` : cat.anio_min ? `Desde ${cat.anio_min}` : `Hasta ${cat.anio_max}`}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-sm text-gray-500">
+                          {(equiposPorCategoria?.[pc.name] || []).length} equipos · {pc.stats.totalGames} juegos
+                        </span>
+                      </div>
+                      {cat?.descripcion && <p className="text-xs text-gray-500 mt-1">{cat.descripcion}</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div>
             <h4 className="text-sm font-medium text-gray-700 mb-2">Configuracion</h4>
             <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm text-gray-600">
@@ -888,29 +1349,79 @@ function StepPreview({
           </div>
 
           <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Equipos ({equipos.length})</h4>
-            <div className="flex flex-wrap gap-2">
-              {equipos.map(eq => (
-                <span key={eq.id} className="inline-flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg text-sm">
-                  {eq.logo_url ? (
-                    <img src={eq.logo_url} alt="" className="w-5 h-5 rounded-full object-contain" />
-                  ) : (
-                    <span
-                      className="w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[10px] font-bold"
-                      style={{ backgroundColor: eq.color_primario || '#6B7280' }}
-                    >
-                      {(eq.nombre_corto || '').substring(0, 2).toUpperCase()}
-                    </span>
-                  )}
-                  {eq.nombre_corto || eq.nombre}
-                </span>
-              ))}
-            </div>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">
+              Equipos ({equipos.length})
+              {usaCategorias && categorias?.length > 0 && ` en ${categorias.length} categorias`}
+            </h4>
+            {usaCategorias && categorias?.length > 0 ? (
+              <div className="space-y-3">
+                {categorias.map(cat => {
+                  const catEquipoIds = equiposPorCategoria?.[cat.nombre] || []
+                  const catEquipos = (equiposDisponibles || []).filter(e => catEquipoIds.includes(e.id))
+                  return (
+                    <div key={cat.nombre}>
+                      <div className="mb-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium text-primary-600">{cat.nombre}</span>
+                          {cat.genero && cat.genero !== 'cualquiera' && (
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${cat.genero === 'varonil' ? 'bg-blue-100 text-blue-700' : cat.genero === 'femenil' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'}`}>
+                              {cat.genero === 'varonil' ? 'Hombres' : cat.genero === 'femenil' ? 'Mujeres' : `Mixto (${cat.min_mujeres || 0}F)`}
+                            </span>
+                          )}
+                          {(cat.anio_min || cat.anio_max) && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                              {cat.anio_min && cat.anio_max ? `${cat.anio_min}–${cat.anio_max}` : cat.anio_min ? `Desde ${cat.anio_min}` : `Hasta ${cat.anio_max}`}
+                            </span>
+                          )}
+                        </div>
+                        {cat.descripcion && <p className="text-[11px] text-gray-400 mt-0.5">{cat.descripcion}</p>}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {catEquipos.map(eq => (
+                          <span key={eq.id} className="inline-flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg text-sm">
+                            {eq.logo_url ? (
+                              <img src={eq.logo_url} alt="" className="w-5 h-5 rounded-full object-contain" />
+                            ) : (
+                              <span
+                                className="w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[10px] font-bold"
+                                style={{ backgroundColor: eq.color_primario || '#6B7280' }}
+                              >
+                                {(eq.nombre_corto || '').substring(0, 2).toUpperCase()}
+                              </span>
+                            )}
+                            {eq.nombre_corto || eq.nombre}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {equipos.map(eq => (
+                  <span key={eq.id} className="inline-flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg text-sm">
+                    {eq.logo_url ? (
+                      <img src={eq.logo_url} alt="" className="w-5 h-5 rounded-full object-contain" />
+                    ) : (
+                      <span
+                        className="w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[10px] font-bold"
+                        style={{ backgroundColor: eq.color_primario || '#6B7280' }}
+                      >
+                        {(eq.nombre_corto || '').substring(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                    {eq.nombre_corto || eq.nombre}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <p className="text-sm text-yellow-800">
               Al confirmar se creara la temporada, el torneo y se generaran <strong>{stats?.totalGames || 0} juegos</strong> automaticamente en el calendario.
+              {usaCategorias && categorias?.length > 0 && ` Los partidos se generaran por categoria, sin cruces entre ellas.`}
             </p>
           </div>
         </>

@@ -128,6 +128,7 @@ export function assignDatesAndSlots(rounds, config) {
           estado: 'programado',
           jornada: match.jornada,
           fase_juego: match.fase_juego,
+          categoria_id: match.categoriaId || null,
         })
 
         slotIndex++
@@ -201,6 +202,7 @@ export function generatePlayoffGames(series, config) {
       equipo_visitante_id: s.inferior.equipo_id,
       _serieNumber: s.serieNumber,
       gameInSeries: 1,
+      categoriaId: s.categoriaId || null,
     })
     // Juego 2: local = seed bajo
     allGames.push({
@@ -208,6 +210,7 @@ export function generatePlayoffGames(series, config) {
       equipo_visitante_id: s.superior.equipo_id,
       _serieNumber: s.serieNumber,
       gameInSeries: 2,
+      categoriaId: s.categoriaId || null,
     })
     // Juego 3: local = seed alto
     allGames.push({
@@ -215,6 +218,7 @@ export function generatePlayoffGames(series, config) {
       equipo_visitante_id: s.inferior.equipo_id,
       _serieNumber: s.serieNumber,
       gameInSeries: 3,
+      categoriaId: s.categoriaId || null,
     })
   })
 
@@ -249,6 +253,7 @@ export function generatePlayoffGames(series, config) {
           fase_juego: 'playoff',
           numero_juego_serie: match.gameInSeries,
           _serieNumber: match._serieNumber,
+          categoria_id: match.categoriaId || null,
         })
 
         slotIndex++
@@ -296,4 +301,95 @@ export function calculateTournamentStats(teamCount, gameDays, timeSlots, startDa
     estimatedWeeks,
     estimatedEndDate,
   }
+}
+
+/**
+ * Genera calendario para torneo multi-categoria.
+ * Agrupa equipos por categoria, genera round-robin por grupo,
+ * e intercala rondas para distribucion justa de horarios.
+ *
+ * @param {Array<{equipoId: string, categoriaId: string}>} teamCategoryPairs
+ * @param {Object} config - Mismo config que assignDatesAndSlots
+ * @returns {Array<Object>} - Juegos listos para insertar con categoria_id
+ */
+export function generateMultiCategoryCalendar(teamCategoryPairs, config) {
+  // 1. Agrupar equipos por categoriaId
+  const groups = {}
+  teamCategoryPairs.forEach(({ equipoId, categoriaId }) => {
+    const key = categoriaId || '__none__'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(equipoId)
+  })
+
+  // 2. Generar round-robin por categoria
+  const allCategoryRounds = {}
+  Object.entries(groups).forEach(([catId, teamIds]) => {
+    if (teamIds.length < 2) return
+    const { allRounds } = generateDoubleRoundRobin(teamIds)
+    allCategoryRounds[catId] = allRounds
+  })
+
+  // 3. Intercalar rondas entre categorias para distribucion justa
+  const mergedRounds = []
+  const categoryKeys = Object.keys(allCategoryRounds)
+  const roundIndices = {}
+  categoryKeys.forEach(k => { roundIndices[k] = 0 })
+
+  let moreRounds = true
+  while (moreRounds) {
+    moreRounds = false
+    for (const catId of categoryKeys) {
+      const rounds = allCategoryRounds[catId]
+      const idx = roundIndices[catId]
+      if (idx < rounds.length) {
+        const taggedRound = rounds[idx].map(m => ({
+          ...m,
+          categoriaId: catId === '__none__' ? null : catId,
+        }))
+        mergedRounds.push(taggedRound)
+        roundIndices[catId]++
+        moreRounds = true
+      }
+    }
+  }
+
+  // 4. Asignar fechas/slots con la funcion existente
+  return assignDatesAndSlots(mergedRounds, config)
+}
+
+/**
+ * Calcula estadisticas de preview para torneo multi-categoria.
+ * @param {Object} teamsByCategory - { categoriaName: teamCount }
+ * @param {number[]} gameDays
+ * @param {string[]} timeSlots
+ * @param {string} startDate
+ * @returns {{ totalGames, perCategory: Array<{name, stats}>, estimatedWeeks, estimatedEndDate }}
+ */
+export function calculateMultiCategoryStats(teamsByCategory, gameDays, timeSlots, startDate) {
+  let totalGames = 0
+  const perCategory = []
+
+  Object.entries(teamsByCategory).forEach(([name, teamCount]) => {
+    if (teamCount < 2) {
+      perCategory.push({ name, stats: { totalGames: 0, totalRounds: 0, gamesPerRound: 0 } })
+      return
+    }
+    const stats = calculateTournamentStats(teamCount, gameDays, timeSlots, startDate)
+    totalGames += stats.totalGames
+    perCategory.push({ name, stats })
+  })
+
+  const slotsPerGameDay = timeSlots.length
+  const gameDaysPerWeek = gameDays.length
+  const gamesPerWeek = slotsPerGameDay * gameDaysPerWeek
+  const estimatedWeeks = gamesPerWeek > 0 ? Math.ceil(totalGames / gamesPerWeek) : 0
+
+  let estimatedEndDate = null
+  if (startDate && estimatedWeeks > 0) {
+    const endDate = new Date(startDate + 'T00:00:00')
+    endDate.setDate(endDate.getDate() + estimatedWeeks * 7)
+    estimatedEndDate = endDate.toISOString().split('T')[0]
+  }
+
+  return { totalGames, perCategory, estimatedWeeks, estimatedEndDate }
 }

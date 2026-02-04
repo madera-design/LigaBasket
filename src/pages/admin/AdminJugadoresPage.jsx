@@ -23,6 +23,8 @@ export default function AdminJugadoresPage() {
     equipo_id: '',
     altura: '',
     peso: '',
+    fecha_nacimiento: '',
+    sexo: '',
   })
   const [saving, setSaving] = useState(false)
   const [fotoFile, setFotoFile] = useState(null)
@@ -60,6 +62,8 @@ export default function AdminJugadoresPage() {
         equipo_id: jugador.equipo_id || '',
         altura: jugador.altura_cm ? (jugador.altura_cm / 100).toFixed(2) : '',
         peso: jugador.peso_kg || '',
+        fecha_nacimiento: jugador.fecha_nacimiento || '',
+        sexo: jugador.sexo || '',
       })
       setFotoPreview(jugador.foto_url || null)
     } else {
@@ -72,6 +76,8 @@ export default function AdminJugadoresPage() {
         equipo_id: '',
         altura: '',
         peso: '',
+        fecha_nacimiento: '',
+        sexo: '',
       })
       setFotoPreview(null)
     }
@@ -154,13 +160,15 @@ export default function AdminJugadoresPage() {
 
     setSaving(true)
     try {
-      const { altura, peso, ...rest } = formData
+      const { altura, peso, fecha_nacimiento, sexo, ...rest } = formData
       const data = {
         ...rest,
         numero: parseInt(formData.numero),
         altura_cm: altura ? Math.round(parseFloat(altura) * 100) : null,
         peso_kg: peso ? parseFloat(peso) : null,
         equipo_id: formData.equipo_id || null,
+        fecha_nacimiento: fecha_nacimiento || null,
+        sexo: sexo || null,
       }
 
       let jugadorId
@@ -271,6 +279,8 @@ export default function AdminJugadoresPage() {
                 <th>Jugador</th>
                 <th>Equipo</th>
                 <th className="w-18">Posición</th>
+                <th className="w-12">Sexo</th>
+                <th className="w-24">Nacimiento</th>
                 <th className="w-18">Estado</th>
                 <th className="w-28 text-right">Acciones</th>
               </tr>
@@ -293,6 +303,8 @@ export default function AdminJugadoresPage() {
                   </td>
                   <td>{jugador.equipo?.nombre || <span className="text-gray-400">Sin equipo</span>}</td>
                   <td>{jugador.posicion ? <span className="badge-primary">{jugador.posicion}</span> : '-'}</td>
+                  <td className="text-center">{jugador.sexo === 'M' ? 'M' : jugador.sexo === 'F' ? 'F' : '-'}</td>
+                  <td className="text-xs text-gray-500">{jugador.fecha_nacimiento ? new Date(jugador.fecha_nacimiento + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}</td>
                   <td><span className={jugador.activo ? 'badge-success' : 'badge-gray'}>{jugador.activo ? 'Activo' : 'Inactivo'}</span></td>
                   <td>
                     <div className="flex justify-end gap-2">
@@ -409,6 +421,20 @@ export default function AdminJugadoresPage() {
                   <div>
                     <label className="label">Peso (kg)</label>
                     <input type="number" min="50" max="200" value={formData.peso} onChange={(e) => setFormData({ ...formData, peso: e.target.value })} className="input" placeholder="80" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Fecha de nacimiento</label>
+                    <input type="date" value={formData.fecha_nacimiento} onChange={(e) => setFormData({ ...formData, fecha_nacimiento: e.target.value })} className="input" />
+                  </div>
+                  <div>
+                    <label className="label">Sexo</label>
+                    <select value={formData.sexo} onChange={(e) => setFormData({ ...formData, sexo: e.target.value })} className="select">
+                      <option value="">Seleccionar</option>
+                      <option value="M">Masculino</option>
+                      <option value="F">Femenino</option>
+                    </select>
                   </div>
                 </div>
                 <div className="flex gap-3 pt-4">

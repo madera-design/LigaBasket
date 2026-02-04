@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, Trophy, Swords, Play, Check, Clock, MapPin,
-  ClipboardList, X, Eye, CheckCircle, XCircle, Pencil, FileText, Award, UserPlus, AlertTriangle,
+  ClipboardList, X, Eye, CheckCircle, XCircle, Pencil, FileText, Award, UserPlus, AlertTriangle, Tag,
 } from 'lucide-react'
 import {
   getTorneoById,
@@ -28,7 +28,9 @@ import {
   generateDoubleRoundRobin,
   assignDatesAndSlots,
 } from '../../utils/tournamentScheduler'
+import { generateMultiCategoryCalendar } from '../../utils/tournamentScheduler'
 import { FASES_TORNEO, ESTADOS_INSCRIPCION } from '../../utils/constants'
+import { getCategoriasByTorneo } from '../../services/categorias.service'
 import ConfirmModal from '../../components/ConfirmModal'
 import toast from 'react-hot-toast'
 
@@ -46,6 +48,8 @@ export default function AdminTorneoDetailPage() {
   const [stats, setStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState(null)
+  const [categorias, setCategorias] = useState([])
+  const [selectedCategoriaId, setSelectedCategoriaId] = useState(null)
 
   useEffect(() => {
     fetchTorneo()
@@ -53,14 +57,16 @@ export default function AdminTorneoDetailPage() {
 
   const fetchTorneo = async () => {
     try {
-      const [torneoData, equiposData, statsData] = await Promise.all([
+      const [torneoData, equiposData, statsData, categoriasData] = await Promise.all([
         getTorneoById(id),
         getTorneoEquipos(id),
         getTorneoGameStats(id),
+        getCategoriasByTorneo(id),
       ])
       setTorneo(torneoData)
       setEquipos(equiposData)
       setStats(statsData)
+      setCategorias(categoriasData || [])
       if (!activeTab) {
         setActiveTab(torneoData.fase === 'inscripcion' ? 'inscripciones' : 'calendario')
       }
@@ -200,18 +206,75 @@ export default function AdminTorneoDetailPage() {
         </div>
       </div>
 
+      {/* Category selector */}
+      {categorias.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Tag size={14} className="text-gray-400" />
+            <button
+              onClick={() => setSelectedCategoriaId(null)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                selectedCategoriaId === null ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Todas
+            </button>
+            {categorias.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategoriaId(cat.id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  selectedCategoriaId === cat.id ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {cat.nombre}
+              </button>
+            ))}
+          </div>
+          {/* Info de la categoria seleccionada */}
+          {selectedCategoriaId && (() => {
+            const cat = categorias.find(c => c.id === selectedCategoriaId)
+            if (!cat) return null
+            const infoParts = []
+            if (cat.genero && cat.genero !== 'cualquiera') {
+              if (cat.genero === 'varonil') infoParts.push('Solo hombres')
+              if (cat.genero === 'femenil') infoParts.push('Solo mujeres')
+              if (cat.genero === 'mixto') infoParts.push(`Mixto${cat.min_mujeres ? ` (min. ${cat.min_mujeres} mujeres)` : ''}`)
+            }
+            if (cat.anio_nacimiento_min && cat.anio_nacimiento_max) {
+              infoParts.push(`Nacidos ${cat.anio_nacimiento_min}–${cat.anio_nacimiento_max}`)
+            } else if (cat.anio_nacimiento_min) {
+              infoParts.push(`Nacidos desde ${cat.anio_nacimiento_min}`)
+            } else if (cat.anio_nacimiento_max) {
+              infoParts.push(`Nacidos hasta ${cat.anio_nacimiento_max}`)
+            }
+            if (!infoParts.length && !cat.descripcion) return null
+            return (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-800 flex flex-wrap items-center gap-x-4 gap-y-1">
+                {cat.descripcion && <span>{cat.descripcion}</span>}
+                {infoParts.map((part, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-medium">{part}</span>
+                ))}
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
       {/* Tab Content */}
       {activeTab === 'inscripciones' && (
-        <TabInscripciones torneo={torneo} onRefresh={fetchTorneo} />
+        <TabInscripciones torneo={torneo} onRefresh={fetchTorneo} categorias={categorias} selectedCategoriaId={selectedCategoriaId} />
       )}
-      {activeTab === 'calendario' && <TabCalendario torneoId={id} />}
-      {activeTab === 'posiciones' && <TabPosiciones torneoId={id} />}
+      {activeTab === 'calendario' && <TabCalendario torneoId={id} categorias={categorias} selectedCategoriaId={selectedCategoriaId} />}
+      {activeTab === 'posiciones' && <TabPosiciones torneoId={id} categorias={categorias} selectedCategoriaId={selectedCategoriaId} />}
       {activeTab === 'playoffs' && (
         <TabPlayoffs
           torneo={torneo}
           equipos={equipos}
           stats={stats}
           onRefresh={fetchTorneo}
+          categorias={categorias}
+          selectedCategoriaId={selectedCategoriaId}
         />
       )}
     </div>
@@ -220,7 +283,7 @@ export default function AdminTorneoDetailPage() {
 
 // ================= TAB INSCRIPCIONES =================
 
-function TabInscripciones({ torneo, onRefresh }) {
+function TabInscripciones({ torneo, onRefresh, categorias, selectedCategoriaId }) {
   const [inscripciones, setInscripciones] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedInsc, setSelectedInsc] = useState(null)
@@ -285,24 +348,38 @@ function TabInscripciones({ torneo, onRefresh }) {
   const handleStartTorneo = async () => {
     setStarting(true)
     try {
-      const equipoIds = await materializeInscripciones(torneo.id)
+      const equipoResults = await materializeInscripciones(torneo.id)
 
-      await addTorneoEquipos(torneo.id, equipoIds)
+      // equipoResults is now [{id, categoriaId}, ...]
+      await addTorneoEquipos(torneo.id, equipoResults)
 
-      const { allRounds } = generateDoubleRoundRobin(equipoIds)
-      const games = assignDatesAndSlots(allRounds, {
+      const hasCategorias = equipoResults.some(e => e.categoriaId)
+      const config = {
         startDate: torneo.fecha_inicio,
         gameDays: torneo.dias_juego,
         timeSlots: torneo.horarios,
         lugar: torneo.lugar,
         temporadaId: torneo.temporada_id,
         torneoId: torneo.id,
-      })
+      }
+
+      let games
+      if (hasCategorias) {
+        const teamCategoryPairs = equipoResults.map(e => ({
+          equipoId: e.id,
+          categoriaId: e.categoriaId,
+        }))
+        games = generateMultiCategoryCalendar(teamCategoryPairs, config)
+      } else {
+        const ids = equipoResults.map(e => e.id)
+        const { allRounds } = generateDoubleRoundRobin(ids)
+        games = assignDatesAndSlots(allRounds, config)
+      }
 
       await createJuegosBulk(games)
       await updateTorneo(torneo.id, { fase: 'regular' })
 
-      toast.success(`Torneo iniciado: ${equipoIds.length} equipos, ${games.length} juegos generados`)
+      toast.success(`Torneo iniciado: ${equipoResults.length} equipos, ${games.length} juegos generados`)
       setShowConfirmStart(false)
       onRefresh()
     } catch (error) {
@@ -446,6 +523,7 @@ function TabInscripciones({ torneo, onRefresh }) {
                 <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
                   <th className="px-4 py-3 text-left">Equipo</th>
                   <th className="px-4 py-3 text-left">Delegado</th>
+                  {categorias.length > 0 && <th className="px-4 py-3 text-center">Categoria</th>}
                   <th className="px-4 py-3 text-center">Jugadores</th>
                   <th className="px-4 py-3 text-center">Estado</th>
                   <th className="px-4 py-3 text-center">Fecha</th>
@@ -453,7 +531,7 @@ function TabInscripciones({ torneo, onRefresh }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {inscripciones.map(insc => (
+                {inscripciones.filter(i => !selectedCategoriaId || i.categoria_id === selectedCategoriaId).map(insc => (
                   <tr key={insc.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{insc.nombre_equipo}</p>
@@ -463,6 +541,13 @@ function TabInscripciones({ torneo, onRefresh }) {
                       <p className="text-gray-700">{insc.delegado_nombre}</p>
                       <p className="text-xs text-gray-400">{insc.delegado_email}</p>
                     </td>
+                    {categorias.length > 0 && (
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                          {categorias.find(c => c.id === insc.categoria_id)?.nombre || '-'}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-center">{(insc.jugadores || []).length}</td>
                     <td className="px-4 py-3 text-center">{getEstadoBadge(insc.estado)}</td>
                     <td className="px-4 py-3 text-center text-xs text-gray-500">
@@ -607,7 +692,7 @@ function TabInscripciones({ torneo, onRefresh }) {
 
 // ================= TAB CALENDARIO =================
 
-function TabCalendario({ torneoId }) {
+function TabCalendario({ torneoId, categorias, selectedCategoriaId }) {
   const [juegos, setJuegos] = useState([])
   const [loading, setLoading] = useState(true)
   const [filtroFase, setFiltroFase] = useState('todos')
@@ -615,7 +700,9 @@ function TabCalendario({ torneoId }) {
   useEffect(() => {
     const fetchJuegos = async () => {
       try {
-        const data = await getJuegos({ torneoId, ascending: true })
+        const filters = { torneoId, ascending: true }
+        if (selectedCategoriaId) filters.categoriaId = selectedCategoriaId
+        const data = await getJuegos(filters)
         setJuegos(data)
       } catch (error) {
         toast.error('Error al cargar juegos')
@@ -624,7 +711,7 @@ function TabCalendario({ torneoId }) {
       }
     }
     fetchJuegos()
-  }, [torneoId])
+  }, [torneoId, selectedCategoriaId])
 
   if (loading) return <div className="flex justify-center py-8"><div className="spinner w-8 h-8"></div></div>
 
@@ -745,7 +832,12 @@ function GameRow({ juego }) {
         </span>
       </div>
 
-      <div className="w-20 text-right">
+      <div className="w-24 text-right">
+        {juego.categoria_nombre && (
+          <span className="text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded mr-1">
+            {juego.categoria_nombre}
+          </span>
+        )}
         {juego.estado !== 'finalizado' && (
           <span className={`text-[10px] font-medium ${estadoColors[juego.estado] || ''}`}>
             {juego.estado === 'programado' ? '' :
@@ -760,15 +852,25 @@ function GameRow({ juego }) {
 
 // ================= TAB POSICIONES =================
 
-function TabPosiciones({ torneoId }) {
-  const [tabla, setTabla] = useState([])
+function TabPosiciones({ torneoId, categorias, selectedCategoriaId }) {
+  const [tablaData, setTablaData] = useState({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchPosiciones = async () => {
+      setLoading(true)
       try {
-        const data = await calcularPosiciones(torneoId)
-        setTabla(data)
+        if (categorias.length > 0 && !selectedCategoriaId) {
+          // Load standings for each category
+          const result = {}
+          await Promise.all(categorias.map(async (cat) => {
+            result[cat.id] = await calcularPosiciones(torneoId, cat.id)
+          }))
+          setTablaData(result)
+        } else {
+          const data = await calcularPosiciones(torneoId, selectedCategoriaId)
+          setTablaData({ _all: data })
+        }
       } catch (error) {
         toast.error('Error al calcular posiciones')
         console.error(error)
@@ -777,71 +879,90 @@ function TabPosiciones({ torneoId }) {
       }
     }
     fetchPosiciones()
-  }, [torneoId])
+  }, [torneoId, selectedCategoriaId, categorias])
 
   if (loading) return <div className="flex justify-center py-8"><div className="spinner w-8 h-8"></div></div>
 
-  if (tabla.length === 0) {
+  const renderTable = (tabla, label) => {
+    if (!tabla || tabla.length === 0) return null
+    return (
+      <div className="card overflow-hidden">
+        {label && (
+          <div className="px-4 py-2 bg-primary-50 border-b border-primary-100">
+            <h4 className="text-sm font-bold text-primary-700">{label}</h4>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
+                <th className="px-4 py-3 text-left w-10">#</th>
+                <th className="px-4 py-3 text-left">Equipo</th>
+                <th className="px-4 py-3 text-center">JJ</th>
+                <th className="px-4 py-3 text-center">G</th>
+                <th className="px-4 py-3 text-center">P</th>
+                <th className="px-4 py-3 text-center">PF</th>
+                <th className="px-4 py-3 text-center">PC</th>
+                <th className="px-4 py-3 text-center">DIF</th>
+                <th className="px-4 py-3 text-center font-bold">PTS</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {tabla.map((row, i) => (
+                <tr key={row.equipo_id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-gray-500 font-medium">{i + 1}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {row.equipo_logo ? (
+                        <img src={row.equipo_logo} alt="" className="w-7 h-7 rounded-full object-contain" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
+                          style={{ backgroundColor: row.equipo_color || '#6B7280' }}>
+                          {(row.equipo_corto || '').substring(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="font-medium text-gray-900">{row.equipo_corto || row.equipo_nombre}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-center text-gray-600">{row.juegos}</td>
+                  <td className="px-4 py-3 text-center text-green-600 font-medium">{row.ganados}</td>
+                  <td className="px-4 py-3 text-center text-red-500">{row.perdidos}</td>
+                  <td className="px-4 py-3 text-center text-gray-600">{row.puntos_favor}</td>
+                  <td className="px-4 py-3 text-center text-gray-600">{row.puntos_contra}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={row.diferencia > 0 ? 'text-green-600' : row.diferencia < 0 ? 'text-red-500' : 'text-gray-400'}>
+                      {row.diferencia > 0 ? '+' : ''}{row.diferencia}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center font-bold text-gray-900">{row.pts}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  const allEmpty = Object.values(tablaData).every(t => !t || t.length === 0)
+  if (allEmpty) {
     return <div className="card p-8 text-center text-gray-400">No hay juegos finalizados para calcular posiciones</div>
   }
 
+  if (tablaData._all) {
+    return renderTable(tablaData._all)
+  }
+
   return (
-    <div className="card overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
-              <th className="px-4 py-3 text-left w-10">#</th>
-              <th className="px-4 py-3 text-left">Equipo</th>
-              <th className="px-4 py-3 text-center">JJ</th>
-              <th className="px-4 py-3 text-center">G</th>
-              <th className="px-4 py-3 text-center">P</th>
-              <th className="px-4 py-3 text-center">PF</th>
-              <th className="px-4 py-3 text-center">PC</th>
-              <th className="px-4 py-3 text-center">DIF</th>
-              <th className="px-4 py-3 text-center font-bold">PTS</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {tabla.map((row, i) => (
-              <tr key={row.equipo_id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-gray-500 font-medium">{i + 1}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {row.equipo_logo ? (
-                      <img src={row.equipo_logo} alt="" className="w-7 h-7 rounded-full object-contain" />
-                    ) : (
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
-                        style={{ backgroundColor: row.equipo_color || '#6B7280' }}>
-                        {(row.equipo_corto || '').substring(0, 2).toUpperCase()}
-                      </div>
-                    )}
-                    <span className="font-medium text-gray-900">{row.equipo_corto || row.equipo_nombre}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-center text-gray-600">{row.juegos}</td>
-                <td className="px-4 py-3 text-center text-green-600 font-medium">{row.ganados}</td>
-                <td className="px-4 py-3 text-center text-red-500">{row.perdidos}</td>
-                <td className="px-4 py-3 text-center text-gray-600">{row.puntos_favor}</td>
-                <td className="px-4 py-3 text-center text-gray-600">{row.puntos_contra}</td>
-                <td className="px-4 py-3 text-center">
-                  <span className={row.diferencia > 0 ? 'text-green-600' : row.diferencia < 0 ? 'text-red-500' : 'text-gray-400'}>
-                    {row.diferencia > 0 ? '+' : ''}{row.diferencia}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-center font-bold text-gray-900">{row.pts}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="space-y-4">
+      {categorias.map(cat => renderTable(tablaData[cat.id], cat.nombre))}
     </div>
   )
 }
 
 // ================= TAB PLAYOFFS =================
 
-function TabPlayoffs({ torneo, equipos, stats, onRefresh }) {
+function TabPlayoffs({ torneo, equipos, stats, onRefresh, categorias, selectedCategoriaId }) {
   const [series, setSeries] = useState([])
   const [loadingSeries, setLoadingSeries] = useState(true)
   const [showConfirmStart, setShowConfirmStart] = useState(false)
@@ -867,63 +988,80 @@ function TabPlayoffs({ torneo, equipos, stats, onRefresh }) {
   const handleStartPlayoffs = async () => {
     setGenerating(true)
     try {
-      const standings = await calcularPosiciones(torneo.id)
-      if (standings.length < 2) {
-        toast.error('Se necesitan al menos 2 equipos con juegos finalizados')
-        return
-      }
+      const hasCategorias = categorias.length > 0
+      const categoriasToProcess = hasCategorias ? categorias : [null]
 
-      const totalTeams = equipos.length
-      const { qualified } = calculatePlayoffQualifiers(standings, totalTeams)
+      let totalSeries = 0
+      let totalGamesCreated = 0
 
-      if (qualified.length < 2) {
-        toast.error('No hay suficientes equipos clasificados')
-        return
-      }
-
-      const bracket = generatePlayoffBracket(qualified)
-
-      const seriesRows = bracket.map(s => ({
-        torneo_id: torneo.id,
-        ronda: 1,
-        numero_serie: s.serieNumber,
-        equipo_superior_id: s.superior.equipo_id,
-        equipo_inferior_id: s.inferior.equipo_id,
-        estado: 'pendiente',
-      }))
-      const createdSeries = await createSeriesPlayoff(seriesRows)
-
+      // Get last game date for playoff start
       const juegos = await getJuegos({ torneoId: torneo.id, ascending: false })
       const lastGameDate = juegos.length > 0 ? juegos[0].fecha : torneo.fecha_inicio
       const playoffStart = new Date(lastGameDate)
       playoffStart.setDate(playoffStart.getDate() + 1)
       const startDateStr = playoffStart.toISOString().split('T')[0]
 
-      const bracketForGames = bracket.map(s => ({
-        ...s,
-        superior: { equipo_id: s.superior.equipo_id },
-        inferior: { equipo_id: s.inferior.equipo_id },
-      }))
+      for (const cat of categoriasToProcess) {
+        const catId = cat?.id || null
+        const standings = await calcularPosiciones(torneo.id, catId)
+        if (standings.length < 2) continue
 
-      const { games } = generatePlayoffGames(bracketForGames, {
-        startDate: startDateStr,
-        gameDays: torneo.dias_juego,
-        timeSlots: torneo.horarios,
-        lugar: torneo.lugar,
-        temporadaId: torneo.temporada_id,
-        torneoId: torneo.id,
-      })
+        const catEquipos = catId
+          ? equipos.filter(e => e.categoria_id === catId)
+          : equipos
+        const totalTeams = catEquipos.length || standings.length
+        const { qualified } = calculatePlayoffQualifiers(standings, totalTeams)
 
-      const gamesWithSerie = games.map(g => {
-        const serie = createdSeries.find(s => s.numero_serie === g._serieNumber)
-        const { _serieNumber, ...rest } = g
-        return { ...rest, serie_id: serie?.id || null }
-      })
+        if (qualified.length < 2) continue
 
-      await createJuegosBulk(gamesWithSerie)
+        const bracket = generatePlayoffBracket(qualified)
+
+        const seriesRows = bracket.map(s => ({
+          torneo_id: torneo.id,
+          ronda: 1,
+          numero_serie: s.serieNumber,
+          equipo_superior_id: s.superior.equipo_id,
+          equipo_inferior_id: s.inferior.equipo_id,
+          estado: 'pendiente',
+          categoria_id: catId,
+        }))
+        const createdSeries = await createSeriesPlayoff(seriesRows)
+
+        const bracketForGames = bracket.map(s => ({
+          ...s,
+          superior: { equipo_id: s.superior.equipo_id },
+          inferior: { equipo_id: s.inferior.equipo_id },
+          categoriaId: catId,
+        }))
+
+        const { games } = generatePlayoffGames(bracketForGames, {
+          startDate: startDateStr,
+          gameDays: torneo.dias_juego,
+          timeSlots: torneo.horarios,
+          lugar: torneo.lugar,
+          temporadaId: torneo.temporada_id,
+          torneoId: torneo.id,
+        })
+
+        const gamesWithSerie = games.map(g => {
+          const serie = createdSeries.find(s => s.numero_serie === g._serieNumber)
+          const { _serieNumber, ...rest } = g
+          return { ...rest, serie_id: serie?.id || null }
+        })
+
+        await createJuegosBulk(gamesWithSerie)
+        totalSeries += bracket.length
+        totalGamesCreated += gamesWithSerie.length
+      }
+
+      if (totalSeries === 0) {
+        toast.error('No hay suficientes equipos clasificados para playoffs')
+        return
+      }
+
       await updateTorneo(torneo.id, { fase: 'playoffs' })
 
-      toast.success(`Playoffs generados: ${bracket.length} series, ${gamesWithSerie.length} juegos`)
+      toast.success(`Playoffs generados: ${totalSeries} series, ${totalGamesCreated} juegos`)
       setShowConfirmStart(false)
       onRefresh()
       fetchSeries()
@@ -965,9 +1103,16 @@ function TabPlayoffs({ torneo, equipos, stats, onRefresh }) {
     )
   }
 
+  const filteredSeries = selectedCategoriaId
+    ? series.filter(s => s.categoria_id === selectedCategoriaId)
+    : series
+
   const rondas = {}
-  series.forEach(s => {
-    const key = `Ronda ${s.ronda}`
+  filteredSeries.forEach(s => {
+    const catLabel = categorias.length > 0 && s.categoria_id
+      ? ` - ${categorias.find(c => c.id === s.categoria_id)?.nombre || ''}`
+      : ''
+    const key = `Ronda ${s.ronda}${catLabel}`
     if (!rondas[key]) rondas[key] = []
     rondas[key].push(s)
   })
